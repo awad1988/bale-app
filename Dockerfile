@@ -1,3 +1,8 @@
-FROM nginx:alpine
-COPY . /usr/share/nginx/html
+FROM node:22-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY . .
+ENV PORT=80
 EXPOSE 80
+CMD ["npm", "start"]

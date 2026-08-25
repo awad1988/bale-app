@@ -95,35 +95,53 @@
 </section>
 </div>
 <script>
-const DBKEY='baleAgencyDataV1';
-let data=JSON.parse(localStorage.getItem(DBKEY)||'{"shipments":[],"bales":[],"customers":[],"payments":[]}');
-function persist(){localStorage.setItem(DBKEY,JSON.stringify(data));renderAll()}
+let data={shipments:[],bales:[],customers:[],payments:[]};
 function money(n){return (Number(n)||0).toFixed(2)}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function v(id){return document.getElementById(id).value}
+function n(id){return Number(v(id)||0)}
+async function api(url, options={}){
+  const r=await fetch(url,{headers:{'Content-Type':'application/json'},...options});
+  const body=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(body.error||'تعذر الاتصال بالخادم');
+  return body;
+}
+async function refresh(){
+  try{
+    data=await api('/api/data');
+    document.getElementById('cloudStatus').textContent='سحابي • متصل';
+    renderAll();
+  }catch(e){
+    document.getElementById('cloudStatus').textContent='خطأ في قاعدة البيانات';
+    alert('تعذر الاتصال بقاعدة البيانات: '+e.message);
+  }
+}
 
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));document.getElementById(b.dataset.target).classList.add('active')})
 function toggleShipmentForm(){document.getElementById('shipmentForm').classList.toggle('hidden')}
 function toggleBaleForm(){document.getElementById('baleForm').classList.toggle('hidden')}
 function toggleCustomerForm(){document.getElementById('customerForm').classList.toggle('hidden')}
-function v(id){return document.getElementById(id).value}
-function n(id){return Number(v(id)||0)}
-function saveShipment(){
+async function saveShipment(){
   if(!v('containerName')) return alert('أدخل اسم أو رقم الكونتينر');
-  data.shipments.push({id:uid(),supplier:v('supplier'),container:v('containerName'),purchaseDate:v('purchaseDate'),arrivalDate:v('arrivalDate'),fx:n('fx'),season:v('season'),customs:n('customs'),clearance:n('clearance'),otherCost:n('otherCost'),notes:v('shipNotes')});
-  ['supplier','containerName','purchaseDate','arrivalDate','fx','customs','clearance','otherCost','shipNotes'].forEach(x=>document.getElementById(x).value='');toggleShipmentForm();persist();
+  const x={id:uid(),supplier:v('supplier'),container:v('containerName'),purchaseDate:v('purchaseDate'),arrivalDate:v('arrivalDate'),fx:n('fx'),season:v('season'),customs:n('customs'),clearance:n('clearance'),otherCost:n('otherCost'),notes:v('shipNotes')};
+  try{await api('/api/shipments',{method:'POST',body:JSON.stringify(x)});['supplier','containerName','purchaseDate','arrivalDate','fx','customs','clearance','otherCost','shipNotes'].forEach(x=>document.getElementById(x).value='');toggleShipmentForm();await refresh()}catch(e){alert(e.message)}
 }
 function shipmentBales(sid){return data.bales.filter(b=>b.shipmentId===sid)}
 function perBaleExpense(sid){const s=data.shipments.find(x=>x.id===sid);if(!s)return 0;const count=shipmentBales(sid).length;if(!count)return 0;return ((s.customs||0)+(s.clearance||0)+(s.otherCost||0))/count}
 function baleJod(b){const s=data.shipments.find(x=>x.id===b.shipmentId);const base=(b.buyUsd||0)*(s?.fx||0);return base+perBaleExpense(b.shipmentId)}
-function saveBale(){
+async function saveBale(){
  if(!v('baleShipment'))return alert('أضف شحنة أولاً'); if(!v('nameEn')&&!v('nameAr'))return alert('أدخل اسم الصنف');
- data.bales.push({id:uid(),shipmentId:v('baleShipment'),grade:v('grade'),nameEn:v('nameEn'),nameAr:v('nameAr'),weight:n('weight'),buyUsd:n('buyUsd'),status:'في الطريق'});
- ['nameEn','nameAr','weight','buyUsd'].forEach(x=>document.getElementById(x).value='');persist();
+ const x={id:uid(),shipmentId:v('baleShipment'),grade:v('grade'),nameEn:v('nameEn'),nameAr:v('nameAr'),weight:n('weight'),buyUsd:n('buyUsd'),status:'في الطريق'};
+ try{await api('/api/bales',{method:'POST',body:JSON.stringify(x)});['nameEn','nameAr','weight','buyUsd'].forEach(x=>document.getElementById(x).value='');await refresh()}catch(e){alert(e.message)}
 }
-function saveCustomer(){if(!v('custName'))return alert('أدخل اسم الزبون');data.customers.push({id:uid(),name:v('custName'),phone:v('custPhone'),debt:n('openingDebt')});['custName','custPhone','openingDebt'].forEach(x=>document.getElementById(x).value=x==='openingDebt'?'0':'');toggleCustomerForm();persist()}
-function addPayment(cid){const amount=Number(prompt('قيمة الدفعة بالدينار؟')||0);if(amount<=0)return;const c=data.customers.find(x=>x.id===cid);c.debt=Math.max(0,(c.debt||0)-amount);data.payments.push({id:uid(),customerId:cid,amount,date:new Date().toISOString()});persist()}
+async function saveCustomer(){
+ if(!v('custName'))return alert('أدخل اسم الزبون');
+ const x={id:uid(),name:v('custName'),phone:v('custPhone'),debt:n('openingDebt')};
+ try{await api('/api/customers',{method:'POST',body:JSON.stringify(x)});['custName','custPhone','openingDebt'].forEach(x=>document.getElementById(x).value=x==='openingDebt'?'0':'');toggleCustomerForm();await refresh()}catch(e){alert(e.message)}
+}
+async function addPayment(cid){const amount=Number(prompt('قيمة الدفعة بالدينار؟')||0);if(amount<=0)return;try{await api('/api/payments',{method:'POST',body:JSON.stringify({id:uid(),customerId:cid,amount})});await refresh()}catch(e){alert(e.message)}}
 function statement(cid){const c=data.customers.find(x=>x.id===cid);const ps=data.payments.filter(p=>p.customerId===cid);let txt=`كشف حساب ${c.name}\nالرصيد الحالي: ${money(c.debt)} د.أ\n`;if(ps.length){txt+='\nالدفعات المسجلة:\n'+ps.map(p=>`- ${money(p.amount)} د.أ`).join('\n')}else txt+='\nلا توجد دفعات مسجلة.';alert(txt)}
-function runAgent(){const q=v('agentPrompt').trim();const out=document.getElementById('agentResult');if(!q){out.textContent='اكتب أمرًا أولاً.';return}if(q.includes('كشف حساب')){const name=q.replace('جهز','').replace('كشف حساب','').trim();const c=data.customers.find(x=>x.name.includes(name)||name.includes(x.name));if(c){out.innerHTML=`تم تجهيز كشف حساب <b>${c.name}</b>.<br>الرصيد الحالي: <b>${money(c.debt)} د.أ</b><br><br>لن يتم الإرسال إلا بعد موافقتك.`}else out.textContent='لم أجد الزبون في الحسابات.'}else out.textContent='هذه النسخة تفهم حالياً أمر "جهز كشف حساب ...". الربط الكامل بالذكاء الاصطناعي سيكون في النسخة السحابية.'}
+function runAgent(){const q=v('agentPrompt').trim();const out=document.getElementById('agentResult');if(!q){out.textContent='اكتب أمرًا أولاً.';return}if(q.includes('كشف حساب')){const name=q.replace('جهز','').replace('كشف حساب','').trim();const c=data.customers.find(x=>x.name.includes(name)||name.includes(x.name));if(c){out.innerHTML=`تم تجهيز كشف حساب <b>${c.name}</b>.<br>الرصيد الحالي: <b>${money(c.debt)} د.أ</b><br><br>لن يتم الإرسال إلا بعد موافقتك.`}else out.textContent='لم أجد الزبون في الحسابات.'}else out.textContent='هذه النسخة تفهم حالياً أمر "جهز كشف حساب ...". الربط الكامل بالذكاء الاصطناعي سيكون لاحقاً.'}
 function renderAll(){
  document.getElementById('mShip').textContent=data.shipments.length;document.getElementById('mBales').textContent=data.bales.length;document.getElementById('mCust').textContent=data.customers.length;document.getElementById('mDebt').textContent=money(data.customers.reduce((a,c)=>a+(c.debt||0),0));
  document.getElementById('shipmentList').innerHTML=data.shipments.slice().reverse().map(s=>{const cnt=shipmentBales(s.id).length;const pending=!(s.customs||s.clearance||s.otherCost);return `<div class="item"><div class="top"><b>${s.container}</b><span class="pill ${pending?'pending':'ok'}">${pending?'بانتظار المصاريف':'تكلفة محدثة'}</span></div><div class="small">${s.supplier||'بدون مورد'} • ${s.season} • ${cnt} بالة • الصرف ${s.fx||'-'}</div></div>`}).join('')||'<div class="muted">لا توجد شحنات بعد.</div>';
@@ -131,7 +149,7 @@ function renderAll(){
  document.getElementById('baleRows').innerHTML=data.bales.map(b=>`<tr><td><b>${b.nameAr||'-'}</b><div class="small">${b.nameEn||''}</div></td><td>${b.grade}</td><td>${b.weight||0}</td><td>${money(b.buyUsd)}</td><td>${money(baleJod(b))}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد بالات بعد.</td></tr>';
  document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div class="item"><div class="top"><b>${c.name}</b><b>${money(c.debt)} د.أ</b></div><div class="small">${c.phone||'بدون هاتف'}</div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn secondary" onclick="addPayment('${c.id}')">تسجيل دفعة</button><button class="btn secondary" onclick="statement('${c.id}')">كشف حساب</button></div></div>`).join('')||'<div class="muted">لا يوجد زبائن بعد.</div>';
 }
-renderAll();
+refresh();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body></html>
