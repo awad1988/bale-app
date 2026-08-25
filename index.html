@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>وكالة البالة</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    :root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--accent:#0f766e;--danger:#b91c1c;--warn:#92400e}
+    *{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+    header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 10px #0002}
+    header h1{font-size:18px;margin:0}.status{font-size:12px;background:#ffffff18;padding:6px 9px;border-radius:999px}
+    .wrap{max-width:980px;margin:auto;padding:14px 14px 90px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 2px 8px #0f172a08}.card h3{margin:0 0 8px;font-size:15px}.metric{font-size:24px;font-weight:800}.muted{color:var(--muted);font-size:13px}
+    nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom)}nav button{border:0;background:transparent;padding:10px 4px;font-size:12px;color:var(--muted)}nav button.active{color:var(--accent);font-weight:800}
+    section{display:none}section.active{display:block}.section-title{display:flex;justify-content:space-between;align-items:center;margin:8px 0 12px}.section-title h2{font-size:20px;margin:0}
+    label{font-size:13px;font-weight:700;display:block;margin:10px 0 5px}input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit}textarea{min-height:80px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{border:0;border-radius:10px;padding:11px 14px;font-weight:800;cursor:pointer}.btn.primary{background:var(--accent);color:#fff}.btn.secondary{background:#e2e8f0;color:var(--ink)}.btn.danger{background:#fee2e2;color:var(--danger)}.btn.wide{width:100%;margin-top:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}.pill{display:inline-block;padding:4px 7px;border-radius:999px;font-size:11px;background:#ecfeff;color:#155e75}.pill.pending{background:#fff7ed;color:var(--warn)}.pill.ok{background:#ecfdf5;color:#166534}
+    .list{display:grid;gap:8px}.item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.item .top{display:flex;justify-content:space-between;gap:10px}.item b{font-size:14px}.small{font-size:12px;color:var(--muted)}
+    .assistant{background:linear-gradient(135deg,#0f172a,#134e4a);color:#fff;border-radius:18px;padding:16px;margin-top:12px}.assistant textarea{background:#ffffff10;border-color:#ffffff30;color:#fff}.assistant textarea::placeholder{color:#ffffffaa}.assistant .btn{background:#fff;color:#0f172a}
+    .notice{padding:10px 12px;border-radius:10px;background:#fef3c7;color:#78350f;font-size:13px;margin-bottom:10px}.hidden{display:none!important}
+    @media(min-width:760px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}.wrap{padding-bottom:20px}nav{position:sticky;top:55px;border:1px solid var(--line);border-radius:14px;margin:10px auto;max-width:980px}}
+  </style>
+</head>
+<body>
+<header><h1>وكالة البالة</h1><span class="status" id="cloudStatus">نسخة تجريبية محلية</span></header>
+<nav id="nav">
+  <button data-target="dashboard" class="active">الرئيسية</button>
+  <button data-target="shipments">الشحنات</button>
+  <button data-target="inventory">المخزون</button>
+  <button data-target="customers">الزبائن</button>
+  <button data-target="assistant">الوكيل</button>
+</nav>
+<div class="wrap">
+<section id="dashboard" class="active">
+  <div class="section-title"><h2>لوحة التحكم</h2><span class="muted">الموسم: شتوي</span></div>
+  <div class="grid">
+    <div class="card"><h3>الشحنات</h3><div class="metric" id="mShip">0</div><div class="muted">مسجلة</div></div>
+    <div class="card"><h3>البالات</h3><div class="metric" id="mBales">0</div><div class="muted">في النظام</div></div>
+    <div class="card"><h3>الزبائن</h3><div class="metric" id="mCust">0</div><div class="muted">حسابات</div></div>
+    <div class="card"><h3>ديون الزبائن</h3><div class="metric" id="mDebt">0</div><div class="muted">د.أ</div></div>
+  </div>
+  <div class="assistant">
+    <h3 style="margin-top:0">المساعد الذكي داخل التطبيق</h3>
+    <div style="font-size:13px;opacity:.85">حالياً تجريبي. في النسخة السحابية سنربطه بذكاء اصطناعي فعلي ليقرأ الأوامر ويجهز الكشوف قبل الإرسال.</div>
+  </div>
+</section>
+
+<section id="shipments">
+  <div class="section-title"><h2>الشحنات</h2><button class="btn primary" onclick="toggleShipmentForm()">+ شحنة جديدة</button></div>
+  <div id="shipmentForm" class="card hidden">
+    <div class="row"><div><label>اسم المورد</label><input id="supplier" placeholder="مثال: الشركة الموردة"></div><div><label>اسم/رقم الكونتينر</label><input id="containerName" placeholder="مثال: Winter 2026-1"></div></div>
+    <div class="row"><div><label>تاريخ الشراء</label><input id="purchaseDate" type="date"></div><div><label>تاريخ الوصول المتوقع</label><input id="arrivalDate" type="date"></div></div>
+    <div class="row"><div><label>سعر الصرف: 1 دولار = كم دينار؟</label><input id="fx" type="number" step="0.0001" placeholder="0.709"></div><div><label>الموسم</label><select id="season"><option>شتوي</option><option>صيفي</option></select></div></div>
+    <label>الجمارك الإجمالية (يمكن تركها فارغة الآن)</label><input id="customs" type="number" step="0.01" placeholder="مثال: 3000">
+    <div class="row"><div><label>التخليص</label><input id="clearance" type="number" step="0.01"></div><div><label>نقل/مصاريف أخرى</label><input id="otherCost" type="number" step="0.01"></div></div>
+    <label>ملاحظات</label><textarea id="shipNotes" placeholder="مثلاً: بانتظار الجمارك"></textarea>
+    <button class="btn primary wide" onclick="saveShipment()">حفظ الشحنة</button>
+  </div>
+  <div class="list" id="shipmentList"></div>
+</section>
+
+<section id="inventory">
+  <div class="section-title"><h2>البالات والمخزون</h2><button class="btn primary" onclick="toggleBaleForm()">+ إضافة بالة</button></div>
+  <div id="baleForm" class="card hidden">
+    <div class="row"><div><label>الشحنة</label><select id="baleShipment"></select></div><div><label>التصنيف</label><select id="grade"><option>Cream</option><option>A</option><option>B</option></select></div></div>
+    <div class="row"><div><label>الاسم بالإنجليزي</label><input id="nameEn" placeholder="Lady Anorak"></div><div><label>الاسم بالعربي</label><input id="nameAr" placeholder="جاكيت نفخ ستاتي"></div></div>
+    <div class="row"><div><label>الوزن (كغم)</label><input id="weight" type="number" step="0.01" placeholder="20"></div><div><label>سعر الشراء بالدولار</label><input id="buyUsd" type="number" step="0.01"></div></div>
+    <button class="btn primary wide" onclick="saveBale()">حفظ البالة</button>
+  </div>
+  <div class="notice">تكلفة الجمارك والمصاريف تُوزّع بالتساوي على عدد بالات الشحنة عند توفر المبلغ النهائي.</div>
+  <div style="overflow:auto" class="card"><table><thead><tr><th>الصنف</th><th>الدرجة</th><th>الوزن</th><th>شراء $</th><th>تكلفة د.أ</th><th>الحالة</th></tr></thead><tbody id="baleRows"></tbody></table></div>
+</section>
+
+<section id="customers">
+  <div class="section-title"><h2>الزبائن والحسابات</h2><button class="btn primary" onclick="toggleCustomerForm()">+ زبون</button></div>
+  <div id="customerForm" class="card hidden">
+    <div class="row"><div><label>اسم الزبون</label><input id="custName"></div><div><label>الهاتف</label><input id="custPhone" inputmode="tel"></div></div>
+    <label>الرصيد الافتتاحي (دين على الزبون)</label><input id="openingDebt" type="number" step="0.01" value="0">
+    <button class="btn primary wide" onclick="saveCustomer()">حفظ الزبون</button>
+  </div>
+  <div class="list" id="customerList"></div>
+</section>
+
+<section id="assistant">
+  <div class="section-title"><h2>وكيل الذكاء الاصطناعي</h2><span class="pill pending">تجريبي</span></div>
+  <div class="assistant">
+    <div style="font-weight:800;margin-bottom:8px">اكتب أمرًا بالعربي</div>
+    <textarea id="agentPrompt" placeholder="مثال: جهز كشف حساب أحمد"></textarea>
+    <button class="btn wide" onclick="runAgent()">تنفيذ تجريبي</button>
+    <div id="agentResult" style="margin-top:12px;font-size:14px;line-height:1.7"></div>
+  </div>
+  <div class="card" style="margin-top:12px"><h3>مبدأ الأمان</h3><div class="muted">الوكيل يجهز كشف الحساب أو الرسالة، ولا يرسلها للزبون إلا بعد موافقتك.</div></div>
+</section>
+</div>
+<script>
+const DBKEY='baleAgencyDataV1';
+let data=JSON.parse(localStorage.getItem(DBKEY)||'{"shipments":[],"bales":[],"customers":[],"payments":[]}');
+function persist(){localStorage.setItem(DBKEY,JSON.stringify(data));renderAll()}
+function money(n){return (Number(n)||0).toFixed(2)}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));document.getElementById(b.dataset.target).classList.add('active')})
+function toggleShipmentForm(){document.getElementById('shipmentForm').classList.toggle('hidden')}
+function toggleBaleForm(){document.getElementById('baleForm').classList.toggle('hidden')}
+function toggleCustomerForm(){document.getElementById('customerForm').classList.toggle('hidden')}
+function v(id){return document.getElementById(id).value}
+function n(id){return Number(v(id)||0)}
+function saveShipment(){
+  if(!v('containerName')) return alert('أدخل اسم أو رقم الكونتينر');
+  data.shipments.push({id:uid(),supplier:v('supplier'),container:v('containerName'),purchaseDate:v('purchaseDate'),arrivalDate:v('arrivalDate'),fx:n('fx'),season:v('season'),customs:n('customs'),clearance:n('clearance'),otherCost:n('otherCost'),notes:v('shipNotes')});
+  ['supplier','containerName','purchaseDate','arrivalDate','fx','customs','clearance','otherCost','shipNotes'].forEach(x=>document.getElementById(x).value='');toggleShipmentForm();persist();
+}
+function shipmentBales(sid){return data.bales.filter(b=>b.shipmentId===sid)}
+function perBaleExpense(sid){const s=data.shipments.find(x=>x.id===sid);if(!s)return 0;const count=shipmentBales(sid).length;if(!count)return 0;return ((s.customs||0)+(s.clearance||0)+(s.otherCost||0))/count}
+function baleJod(b){const s=data.shipments.find(x=>x.id===b.shipmentId);const base=(b.buyUsd||0)*(s?.fx||0);return base+perBaleExpense(b.shipmentId)}
+function saveBale(){
+ if(!v('baleShipment'))return alert('أضف شحنة أولاً'); if(!v('nameEn')&&!v('nameAr'))return alert('أدخل اسم الصنف');
+ data.bales.push({id:uid(),shipmentId:v('baleShipment'),grade:v('grade'),nameEn:v('nameEn'),nameAr:v('nameAr'),weight:n('weight'),buyUsd:n('buyUsd'),status:'في الطريق'});
+ ['nameEn','nameAr','weight','buyUsd'].forEach(x=>document.getElementById(x).value='');persist();
+}
+function saveCustomer(){if(!v('custName'))return alert('أدخل اسم الزبون');data.customers.push({id:uid(),name:v('custName'),phone:v('custPhone'),debt:n('openingDebt')});['custName','custPhone','openingDebt'].forEach(x=>document.getElementById(x).value=x==='openingDebt'?'0':'');toggleCustomerForm();persist()}
+function addPayment(cid){const amount=Number(prompt('قيمة الدفعة بالدينار؟')||0);if(amount<=0)return;const c=data.customers.find(x=>x.id===cid);c.debt=Math.max(0,(c.debt||0)-amount);data.payments.push({id:uid(),customerId:cid,amount,date:new Date().toISOString()});persist()}
+function statement(cid){const c=data.customers.find(x=>x.id===cid);const ps=data.payments.filter(p=>p.customerId===cid);let txt=`كشف حساب ${c.name}\nالرصيد الحالي: ${money(c.debt)} د.أ\n`;if(ps.length){txt+='\nالدفعات المسجلة:\n'+ps.map(p=>`- ${money(p.amount)} د.أ`).join('\n')}else txt+='\nلا توجد دفعات مسجلة.';alert(txt)}
+function runAgent(){const q=v('agentPrompt').trim();const out=document.getElementById('agentResult');if(!q){out.textContent='اكتب أمرًا أولاً.';return}if(q.includes('كشف حساب')){const name=q.replace('جهز','').replace('كشف حساب','').trim();const c=data.customers.find(x=>x.name.includes(name)||name.includes(x.name));if(c){out.innerHTML=`تم تجهيز كشف حساب <b>${c.name}</b>.<br>الرصيد الحالي: <b>${money(c.debt)} د.أ</b><br><br>لن يتم الإرسال إلا بعد موافقتك.`}else out.textContent='لم أجد الزبون في الحسابات.'}else out.textContent='هذه النسخة تفهم حالياً أمر "جهز كشف حساب ...". الربط الكامل بالذكاء الاصطناعي سيكون في النسخة السحابية.'}
+function renderAll(){
+ document.getElementById('mShip').textContent=data.shipments.length;document.getElementById('mBales').textContent=data.bales.length;document.getElementById('mCust').textContent=data.customers.length;document.getElementById('mDebt').textContent=money(data.customers.reduce((a,c)=>a+(c.debt||0),0));
+ document.getElementById('shipmentList').innerHTML=data.shipments.slice().reverse().map(s=>{const cnt=shipmentBales(s.id).length;const pending=!(s.customs||s.clearance||s.otherCost);return `<div class="item"><div class="top"><b>${s.container}</b><span class="pill ${pending?'pending':'ok'}">${pending?'بانتظار المصاريف':'تكلفة محدثة'}</span></div><div class="small">${s.supplier||'بدون مورد'} • ${s.season} • ${cnt} بالة • الصرف ${s.fx||'-'}</div></div>`}).join('')||'<div class="muted">لا توجد شحنات بعد.</div>';
+ const sel=document.getElementById('baleShipment');sel.innerHTML=data.shipments.map(s=>`<option value="${s.id}">${s.container}</option>`).join('');
+ document.getElementById('baleRows').innerHTML=data.bales.map(b=>`<tr><td><b>${b.nameAr||'-'}</b><div class="small">${b.nameEn||''}</div></td><td>${b.grade}</td><td>${b.weight||0}</td><td>${money(b.buyUsd)}</td><td>${money(baleJod(b))}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد بالات بعد.</td></tr>';
+ document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div class="item"><div class="top"><b>${c.name}</b><b>${money(c.debt)} د.أ</b></div><div class="small">${c.phone||'بدون هاتف'}</div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn secondary" onclick="addPayment('${c.id}')">تسجيل دفعة</button><button class="btn secondary" onclick="statement('${c.id}')">كشف حساب</button></div></div>`).join('')||'<div class="muted">لا يوجد زبائن بعد.</div>';
+}
+renderAll();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body></html>
