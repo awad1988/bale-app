@@ -1,0 +1,55 @@
+<!doctype html><html lang="ar" dir="rtl"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a"><title>وكالة البالة</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#64748b;--line:#e2e8f0;--accent:#0f766e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:14px 16px;display:flex;justify-content:space-between}
+main{max-width:1050px;margin:auto;padding:14px 14px 85px}.screen{display:none}.screen.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px}
+.metric{font-size:25px;font-weight:800}.muted{font-size:13px;color:var(--muted)}h2{font-size:21px}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:9;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom)}
+nav button{border:0;background:none;padding:11px 3px;font-size:11px;color:var(--muted)}nav button.active{color:var(--accent);font-weight:800}
+.toolbar,.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}input,select,textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit}
+.btn{border:0;border-radius:10px;padding:11px 14px;font-weight:800;background:#e2e8f0}.primary{background:var(--accent);color:#fff}
+.tablewrap{overflow:auto}.table{width:100%;min-width:650px;border-collapse:collapse;font-size:13px}.table th,.table td{padding:9px;border-bottom:1px solid var(--line);text-align:right}
+.pill{padding:4px 8px;border-radius:20px;background:#ecfdf5;color:#166534;font-size:11px}
+.agent{background:linear-gradient(135deg,#0f172a,#134e4a);color:#fff;border-radius:18px;padding:16px}.agent textarea{background:#ffffff12;color:#fff}
+@media(min-width:760px){.grid{grid-template-columns:repeat(4,1fr)}nav{position:sticky;top:58px;max-width:1050px;margin:10px auto;border:1px solid var(--line);border-radius:14px}}
+</style></head><body>
+<header><b>وكالة البالة</b><span id="status">جاهز</span></header>
+<nav id="nav"><button class="active" data-s="home">الرئيسية</button><button data-s="inventory">المخزون</button><button data-s="sales">المبيعات</button><button data-s="customers">الزبائن</button><button data-s="agent">الوكيل</button></nav>
+<main>
+<section id="home" class="screen active"><h2>لوحة التحكم</h2><div class="grid">
+<div class="card">الأصناف<div class="metric" id="products">0</div></div><div class="card">البالات<div class="metric" id="bales">0</div></div>
+<div class="card">الزبائن<div class="metric" id="customers">0</div></div><div class="card">ديون الزبائن<div class="metric" id="debt">0.00 د.أ</div></div></div>
+<div class="card" style="margin-top:12px"><b>ملاحظة</b><p class="muted">هذه الواجهة الجديدة ستتصل بقاعدة Supabase عبر الخادم الجديد. لن نلمس البيانات الحالية.</p></div></section>
+
+<section id="inventory" class="screen"><h2>المخزون</h2><div class="toolbar">
+<select id="branch"><option value="2">الفرع الجديد</option><option value="4">الفرع القديم</option></select><input id="search" placeholder="بحث عن صنف">
+</div><div class="card tablewrap"><table class="table"><thead><tr><th>العربي</th><th>English</th><th>الدرجة</th><th>الوزن</th><th>البالات</th><th>شراء $</th></tr></thead><tbody id="inv"></tbody></table></div>
+<div class="card" style="margin-top:12px"><h3>نقل بين الفروع</h3><div class="row"><select id="moveProduct"></select><input id="moveQty" type="number" min="1" placeholder="الكمية"></div>
+<div class="row"><select id="from"><option value="2">من: الفرع الجديد</option><option value="4">من: الفرع القديم</option></select><select id="to"><option value="4">إلى: الفرع القديم</option><option value="2">إلى: الفرع الجديد</option></select></div>
+<button class="btn primary" onclick="transfer()">تنفيذ النقل</button></div></section>
+
+<section id="sales" class="screen"><h2>المبيعات</h2><div class="card"><p class="muted">هنا سنربط البيع الحقيقي بالمخزون والزبون والصندوق. لن يتم تسجيل أي عملية حتى يتم ربط الخادم الجديد.</p></div></section>
+
+<section id="customers" class="screen"><h2>الزبائن والحسابات</h2><div class="card"><div class="row"><input id="cn" placeholder="اسم الزبون"><input id="cp" placeholder="الهاتف"></div><input id="cd" type="number" placeholder="الرصيد الافتتاحي"><button class="btn primary" onclick="addCustomer()">إضافة زبون</button></div>
+<div class="card tablewrap" style="margin-top:12px"><table class="table"><thead><tr><th>الزبون</th><th>الهاتف</th><th>الدين</th></tr></thead><tbody id="cust"></tbody></table></div></section>
+
+<section id="agent" class="screen"><h2>وكيل الذكاء الاصطناعي</h2><div class="agent"><b>احكي مع الوكيل بالعربي</b><textarea id="agentText" rows="4" placeholder="مثال: اعطيني مخزون الفرع الجديد"></textarea><button class="btn" onclick="agent()">تنفيذ</button><div id="agentResult" style="margin-top:12px"></div></div></section>
+</main>
+<script>
+let data={products:[],inventory:[],customers:[]};
+const $=id=>document.getElementById(id),money=n=>(Number(n)||0).toFixed(2);
+async function api(url,opt={}){let r=await fetch(url,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});let b=await r.json().catch(()=>({}));if(!r.ok)throw Error(b.error||'تعذر الاتصال');return b}
+async function load(){try{data=await api('/api/v2/data');$('status').textContent='سحابي • متصل';render()}catch(e){$('status').textContent='بانتظار الربط'}}
+function render(){$('products').textContent=data.products.length;$('bales').textContent=data.inventory.reduce((a,x)=>a+Number(x.quantity||0),0);$('customers').textContent=data.customers.length;$('debt').textContent=money(data.customers.reduce((a,x)=>a+Number(x.debt||0),0))+' د.أ';renderInv();$('cust').innerHTML=data.customers.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.phone||'-')}</td><td>${money(c.debt)}</td></tr>`).join('');$('moveProduct').innerHTML=data.products.map(p=>`<option value="${p.id}">${esc(p.name_ar||p.name_en)} — ${esc(p.grade||'')}</option>`).join('')}
+function renderInv(){let br=+$('branch').value,q=$('search').value.toLowerCase();let a=data.inventory.filter(x=>+x.branch_id===br).filter(x=>!q||String(x.name_ar||'').toLowerCase().includes(q)||String(x.name_en||'').toLowerCase().includes(q));$('inv').innerHTML=a.map(x=>`<tr><td>${esc(x.name_ar||'-')}</td><td>${esc(x.name_en)}</td><td>${esc(x.grade||'')}</td><td>${money(x.weight_kg)} كغ</td><td><b>${money(x.quantity)}</b></td><td>${money(x.purchase_price_usd)}</td></tr>`).join('')||'<tr><td colspan="6">لا توجد بيانات</td></tr>'}
+async function transfer(){let q=+$('moveQty').value;if(q<=0)return alert('أدخل الكمية');if(+$('from').value===+$('to').value)return alert('اختر فرعين مختلفين');if(!confirm('تأكيد نقل البالات؟'))return;try{await api('/api/v2/inventory/transfer',{method:'POST',body:JSON.stringify({product_id:+$('moveProduct').value,from_branch_id:+$('from').value,to_branch_id:+$('to').value,quantity:q})});alert('تم النقل');load()}catch(e){alert(e.message)}}
+async function addCustomer(){let name=$('cn').value.trim();if(!name)return alert('أدخل الاسم');try{await api('/api/v2/customers',{method:'POST',body:JSON.stringify({name,phone:$('cp').value,debt:+$('cd').value||0})});$('cn').value='';$('cp').value='';$('cd').value='';load()}catch(e){alert(e.message)}}
+async function agent(){let q=$('agentText').value.trim();if(!q)return;$('agentResult').textContent='جاري التنفيذ...';try{let r=await api('/api/v2/agent',{method:'POST',body:JSON.stringify({message:q})});$('agentResult').textContent=r.message||'تم'}catch(e){$('agentResult').textContent='سيتم تفعيل الوكيل بعد ربط API الذكي.'}}
+function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+$('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('nav').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));$(b.dataset.s).classList.add('active')});
+$('branch').onchange=renderInv;$('search').oninput=renderInv;load();
+</script></body></html>
