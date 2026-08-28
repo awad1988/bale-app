@@ -225,7 +225,13 @@ movements.forEach(m=>{
         `;
       }).join('')
     : '<div>لا توجد حركات مسجلة.</div>';
+const totalSales=(data.sales||[])
+  .filter(s=>String(s.customerId)===String(cid))
+  .reduce((sum,s)=>sum+Number(s.amount||0),0);
 
+const totalPayments=(data.payments||[])
+  .filter(p=>String(p.customerId)===String(cid))
+  .reduce((sum,p)=>sum+Number(p.amount||0),0);
   document.getElementById('customerList').innerHTML=`
     <div class="card">
       <h2>كشف حساب ${c.name}</h2>
@@ -233,11 +239,13 @@ movements.forEach(m=>{
       <div style="font-size:18px;margin:15px 0">
         الرصيد الحالي: <b>${money(c.debt)} د.أ</b>
       </div>
-
-      <h3>حركة الحساب</h3>
-
+      
+<div style="margin:10px 0">
+  إجمالي المبيعات: <b>${money(totalSales)} د.أ</b><br>
+  إجمالي الدفعات: <b>${money(totalPayments)} د.أ</b>
+</div>
       ${movementsHtml}
-
+<h3>حركة الحساب</h3>
       <button class="btn secondary wide" onclick="renderAll()">
         رجوع للزبائن
       </button>
