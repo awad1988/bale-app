@@ -163,6 +163,7 @@ async function addPayment(cid){const amount=Number(prompt('قيمة الدفعة
 }
 function statement(cid){
   const c=data.customers.find(x=>String(x.id)===String(cid));
+
   if(!c){
     alert('لم يتم العثور على الزبون');
     return;
@@ -171,32 +172,54 @@ function statement(cid){
   const ps=data.payments.filter(
     p=>String(p.customerId)===String(cid)
   );
-const paymentsHtml=ps.length
-  ? ps.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(p=>{
-const d=p.date
-  ? new Date(p.date).toLocaleDateString('en-GB')
-  : '-';
-      return `
-        <div style="padding:10px 0;border-bottom:1px solid #ddd">
-          <div>دفعة: <b>${money(p.amount)} د.أ</b></div>
-          <div class="small">التاريخ: ${d}</div>
-        </div>
-      `;
-    }).join('')
-  : '<div>لا توجد دفعات مسجلة.</div>';
-  
-  
+
+  const ss=(data.sales||[]).filter(
+    s=>String(s.customerId)===String(cid)
+  );
+
+  const salesHtml=ss.length
+    ? ss.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(s=>{
+        const d=s.date
+          ? new Date(s.date).toLocaleDateString('en-GB')
+          : '-';
+
+        return `
+          <div style="padding:10px 0;border-bottom:1px solid #ddd">
+            <div>مبيعة: <b>${money(s.amount)} د.أ</b></div>
+            <div class="small">التاريخ: ${d}</div>
+            ${s.notes ? `<div class="small">ملاحظة: ${s.notes}</div>` : ''}
+          </div>
+        `;
+      }).join('')
+    : '<div>لا توجد مبيعات مسجلة.</div>';
+
+  const paymentsHtml=ps.length
+    ? ps.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(p=>{
+        const d=p.date
+          ? new Date(p.date).toLocaleDateString('en-GB')
+          : '-';
+
+        return `
+          <div style="padding:10px 0;border-bottom:1px solid #ddd">
+            <div>دفعة: <b>${money(p.amount)} د.أ</b></div>
+            <div class="small">التاريخ: ${d}</div>
+          </div>
+        `;
+      }).join('')
+    : '<div>لا توجد دفعات مسجلة.</div>';
 
   document.getElementById('customerList').innerHTML=`
     <div class="card">
-  <h2>كشف حساب ${c.name}</h2>
+      <h2>كشف حساب ${c.name}</h2>
 
       <div style="font-size:18px;margin:15px 0">
         الرصيد الحالي: <b>${money(c.debt)} د.أ</b>
       </div>
 
-      <h3>الدفعات المسجلة</h3>
+      <h3>المبيعات المسجلة</h3>
+      ${salesHtml}
 
+      <h3 style="margin-top:20px">الدفعات المسجلة</h3>
       ${paymentsHtml}
 
       <button class="btn secondary wide" onclick="renderAll()">
