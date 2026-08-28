@@ -125,8 +125,8 @@ supabaseRequest('sales?select=*')
       sales: (sales || []).map(x => ({
   id: x.id,
   customerId: x.customer_id,
-  amount: rowNum(x.amount),
-  date: x.sale_at || x.created_at || x.sold_at || null,
+  amount: rowNum(x.total_jod),
+  date: x.sale_date || x.created_at || null,
   notes: x.notes || ''
     }))
     });
