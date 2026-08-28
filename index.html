@@ -150,14 +150,19 @@ function statement(cid){
   const ps=data.payments.filter(
     p=>String(p.customerId)===String(cid)
   );
-
-  const paymentsHtml=ps.length
-    ? ps.map(p=>`
-        <div style="padding:8px 0;border-bottom:1px solid #ddd">
-          دفعة: <b>${money(p.amount)} د.أ</b>
+const paymentsHtml=ps.length
+  ? ps.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(p=>{
+      const d=p.date ? new Date(p.date).toLocaleDateString('ar-JO') : '-';
+      return `
+        <div style="padding:10px 0;border-bottom:1px solid #ddd">
+          <div>دفعة: <b>${money(p.amount)} د.أ</b></div>
+          <div class="small">التاريخ: ${d}</div>
         </div>
-      `).join('')
-    : '<div>لا توجد دفعات مسجلة.</div>';
+      `;
+    }).join('')
+  : '<div>لا توجد دفعات مسجلة.</div>';
+  
+  
 
   document.getElementById('customerList').innerHTML=`
     <div class="card">
