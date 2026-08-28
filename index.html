@@ -152,7 +152,9 @@ function statement(cid){
   );
 const paymentsHtml=ps.length
   ? ps.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(p=>{
-      const d=p.date ? new Date(p.date).toLocaleDateString('ar-JO') : '-';
+const d=p.date
+  ? new Date(p.date).toLocaleDateString('en-GB')
+  : '-';
       return `
         <div style="padding:10px 0;border-bottom:1px solid #ddd">
           <div>دفعة: <b>${money(p.amount)} د.أ</b></div>
