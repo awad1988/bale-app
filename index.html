@@ -198,7 +198,15 @@ function statement(cid){
   movements.sort(
     (a,b)=>new Date(b.date||0)-new Date(a.date||0)
   );
+let runningBalance=Number(c.debt||0);
 
+movements.forEach(m=>{
+  m.balance=runningBalance;
+
+  runningBalance += m.type==='sale'
+    ? -Number(m.amount||0)
+    : Number(m.amount||0);
+});
   const movementsHtml=movements.length
     ? movements.map(m=>{
         const d=m.date
@@ -211,6 +219,7 @@ function statement(cid){
           <div style="padding:10px 0;border-bottom:1px solid #ddd">
             <div>${title}: <b>${money(m.amount)} د.أ</b></div>
             <div class="small">التاريخ: ${d}</div>
+            <div class="small">الرصيد بعد الحركة: ${money(m.balance)} د.أ</div>
             ${m.notes ? `<div class="small">ملاحظة: ${m.notes}</div>` : ''}
           </div>
         `;
