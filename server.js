@@ -27,7 +27,6 @@ async function supabaseRequest(endpoint, options = {}) {
     ...options,
     headers: {
       apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
       'Content-Type': 'application/json',
       ...(options.headers || {})
     }
@@ -76,12 +75,13 @@ app.get('/api/health', async (_req, res) => {
 
 app.get('/api/data', async (_req, res) => {
   try {
-    const [shipments, bales, customers, payments] = await Promise.all([
+    const [shipments, bales, customers, payments, sales] = await Promise.all([
       supabaseRequest('shipments?select=*&order=created_at.asc'),
       supabaseRequest('bales?select=*&order=created_at.asc'),
       supabaseRequest('customers?select=*&order=created_at.asc'),
-      supabaseRequest('payments?select=*&order=paid_at.asc')
-    ]);
+      supabaseRequest('payments?select=*&order=paid_at.asc'),
+      supabaseRequest('sales?select=*&order=sale_at.asc')
+]);
 
     res.json({
       shipments: (shipments || []).map(x => ({
@@ -121,7 +121,14 @@ app.get('/api/data', async (_req, res) => {
         customerId: x.customer_id,
         amount: rowNum(x.amount),
         date: x.paid_at
-      }))
+      })),
+      sales: (sales || []).map(x => ({
+  id: x.id,
+  customerId: x.customer_id,
+  amount: rowNum(x.amount),
+  date: x.sale_at,
+  notes: x.notes || ''
+    }))
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -225,7 +232,25 @@ app.post('/api/payments', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
+app.post('/api/sales', async (req, res) => {
+  const x = req.body || {};
 
+  try {
+    await supabaseRequest('rpc/record_sale', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_id: x.id,
+        p_customer_id: Number(x.customerId),
+        p_amount: Number(x.amount || 0),
+        p_notes: x.notes || ''
+      })
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
