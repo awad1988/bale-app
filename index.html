@@ -142,15 +142,40 @@ async function saveCustomer(){
 async function addPayment(cid){const amount=Number(prompt('قيمة الدفعة بالدينار؟')||0);if(amount<=0)return;try{await api('/api/payments',{method:'POST',body:JSON.stringify({id:uid(),customerId:cid,amount})});await refresh()}catch(e){alert(e.message)}}
 function statement(cid){
   const c=data.customers.find(x=>String(x.id)===String(cid));
-  if(!c){alert('لم يتم العثور على الزبون');return;}
-  const ps=data.payments.filter(p=>String(p.customerId)===String(cid));
-  let txt=`كشف حساب ${c.name}\nالرصيد الحالي: ${money(c.debt)} د.أ\n`;
-  if(ps.length){
-    txt+='\nالدفعات المسجلة:\n'+ps.map(p=>`- ${money(p.amount)} د.أ`).join('\n');
-  }else{
-    txt+='\nلا توجد دفعات مسجلة.';
+  if(!c){
+    alert('لم يتم العثور على الزبون');
+    return;
   }
-  alert(txt);
+
+  const ps=data.payments.filter(
+    p=>String(p.customerId)===String(cid)
+  );
+
+  const paymentsHtml=ps.length
+    ? ps.map(p=>`
+        <div style="padding:8px 0;border-bottom:1px solid #ddd">
+          دفعة: <b>${money(p.amount)} د.أ</b>
+        </div>
+      `).join('')
+    : '<div>لا توجد دفعات مسجلة.</div>';
+
+  document.getElementById('customerList').innerHTML=`
+    <div class="card">
+      <h2>كشف حساب ${c.name}</h2>
+
+      <div style="font-size:18px;margin:15px 0">
+        الرصيد الحالي: <b>${money(c.debt)} د.أ</b>
+      </div>
+
+      <h3>الدفعات المسجلة</h3>
+
+      ${paymentsHtml}
+
+      <button class="btn secondary wide" onclick="renderAll()">
+        رجوع للزبائن
+      </button>
+    </div>
+  `;
 }
 function runAgent(){const q=v('agentPrompt').trim();const out=document.getElementById('agentResult');if(!q){out.textContent='اكتب أمرًا أولاً.';return}if(q.includes('كشف حساب')){const name=q.replace('جهز','').replace('كشف حساب','').trim();const c=data.customers.find(x=>x.name.includes(name)||name.includes(x.name));if(c){out.innerHTML=`تم تجهيز كشف حساب <b>${c.name}</b>.<br>الرصيد الحالي: <b>${money(c.debt)} د.أ</b><br><br>لن يتم الإرسال إلا بعد موافقتك.`}else out.textContent='لم أجد الزبون في الحسابات.'}else out.textContent='هذه النسخة تفهم حالياً أمر "جهز كشف حساب ...". الربط الكامل بالذكاء الاصطناعي سيكون لاحقاً.'}
 function renderAll(){
