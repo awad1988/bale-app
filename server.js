@@ -79,8 +79,8 @@ app.get('/api/data', async (_req, res) => {
       supabaseRequest('shipments?select=*&order=created_at.asc'),
       supabaseRequest('bales?select=*&order=created_at.asc'),
       supabaseRequest('customers?select=*&order=created_at.asc'),
-      supabaseRequest('payments?select=*&order=paid_at.asc'),
-      supabaseRequest('sales?select=*&order=sale_at.asc')
+supabaseRequest('payments?select=*&order=paid_at.asc'),
+supabaseRequest('sales?select=*')
 ]);
 
     res.json({
@@ -126,7 +126,7 @@ app.get('/api/data', async (_req, res) => {
   id: x.id,
   customerId: x.customer_id,
   amount: rowNum(x.amount),
-  date: x.sale_at,
+  date: x.sale_at || x.created_at || x.sold_at || null,
   notes: x.notes || ''
     }))
     });
