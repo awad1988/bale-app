@@ -361,18 +361,14 @@ app.post('/api/supplier-payments', async (req, res) => {
   const x = req.body || {};
 
   try {
-    await supabaseRequest('supplier_payments', {
-      method: 'POST',
-      headers: {
-        Prefer: 'return=minimal'
-      },
-      body: JSON.stringify({
-        supplier_id: Number(x.supplierId),
-        amount: Number(x.amount || 0),
-        payment_date: cleanDate(x.date) || new Date().toISOString().slice(0, 10),
-        notes: x.notes || ''
-      })
-    });
+    await supabaseRequest('rpc/record_supplier_payment', {
+  method: 'POST',
+  body: JSON.stringify({
+    p_supplier_id: Number(x.supplierId),
+    p_amount: Number(x.amount || 0),
+    p_notes: x.notes || ''
+  })
+});
 
     res.json({ ok: true });
   } catch (e) {
