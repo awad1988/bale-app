@@ -208,6 +208,7 @@ async function refresh(){
     data=await api('/api/data');
     document.getElementById('cloudStatus').textContent='سحابي • متصل';
     renderAll();
+    setTodayDates();
   }catch(e){
     document.getElementById('cloudStatus').textContent='خطأ في قاعدة البيانات';
     alert('تعذر الاتصال بقاعدة البيانات: '+e.message);
@@ -218,6 +219,15 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.query
 function toggleShipmentForm(){document.getElementById('shipmentForm').classList.toggle('hidden')}
 function toggleBaleForm(){document.getElementById('baleForm').classList.toggle('hidden')}
 function toggleCustomerForm(){document.getElementById('customerForm').classList.toggle('hidden')}
+  function setTodayDates(){
+  const today=new Date().toISOString().slice(0,10);
+
+  const expenseDate=document.getElementById('expenseDate');
+  const cashDate=document.getElementById('cashDate');
+
+  if(expenseDate && !expenseDate.value) expenseDate.value=today;
+  if(cashDate && !cashDate.value) cashDate.value=today;
+}
   async function saveExpense(){
   const amount=n('expenseAmount');
   if(amount<=0) return alert('أدخل مبلغ المصروف');
