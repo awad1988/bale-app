@@ -407,6 +407,71 @@ function renderAll(){
  const sel=document.getElementById('baleShipment');sel.innerHTML=data.shipments.map(s=>`<option value="${s.id}">${s.container}</option>`).join('');
   document.getElementById('baleRows').innerHTML=data.bales.map(b=>`<tr><td><b>${b.nameAr||'-'}</b><div class="small">${b.nameEn||''}</div></td><td>${b.grade}</td><td>${b.weight||0}</td><td>${money(b.buyUsd)}</td><td>${money(baleJod(b))}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد بالات بعد.</td></tr>';
 document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div class="item"><div class="top"><b>${c.name}</b><b>${money(c.debt)} د.أ</b></div><div class="small">${c.phone||'بدون هاتف'}</div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn secondary" onclick="addSale('${c.id}')">تسجيل مبيعة</button><button class="btn secondary" onclick="addPayment('${c.id}')">تسجيل دفعة</button><button class="btn secondary" onclick="statement('${c.id}')">كشف حساب</button></div></div>`).join('')||'<div class="muted">لا يوجد زبائن بعد.</div>';
+  const expenses=data.expenses||[];
+const cashMovements=data.cashMovements||[];
+const payments=data.payments||[];
+
+const expenseTotal=expenses.reduce(
+  (sum,x)=>sum+Number(x.amount||0),0
+);
+
+const manualCashIn=cashMovements
+  .filter(x=>x.type==='in')
+  .reduce((sum,x)=>sum+Number(x.amount||0),0);
+
+const manualCashOut=cashMovements
+  .filter(x=>x.type==='out')
+  .reduce((sum,x)=>sum+Number(x.amount||0),0);
+
+const customerPayments=payments.reduce(
+  (sum,x)=>sum+Number(x.amount||0),0
+);
+
+const cashIn=manualCashIn+customerPayments;
+const cashOut=manualCashOut+expenseTotal;
+const cashBalance=cashIn-cashOut;
+
+document.getElementById('cashIn').textContent=money(cashIn);
+document.getElementById('cashOut').textContent=money(cashOut);
+document.getElementById('cashBalance').textContent=money(cashBalance);
+document.getElementById('expenseTotal').textContent=money(expenseTotal);
+
+const allCashMovements=[
+  ...cashMovements.map(x=>({
+    type:x.type,
+    amount:x.amount,
+    date:x.date,
+    notes:x.notes||'',
+    label:x.type==='in'?'داخل الصندوق':'خارج الصندوق'
+  })),
+  ...expenses.map(x=>({
+    type:'out',
+    amount:x.amount,
+    date:x.date,
+    notes:x.notes||'',
+    label:'مصروف: '+(x.category||'عام')
+  })),
+  ...payments.map(x=>({
+    type:'in',
+    amount:x.amount,
+    date:x.date,
+    notes:'',
+    label:'دفعة زبون'
+  }))
+].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+
+document.getElementById('cashMovementList').innerHTML=
+  allCashMovements.map(x=>`
+    <div class="item">
+      <div class="top">
+        <b>${x.label}</b>
+        <b>${money(x.amount)} د.أ</b>
+      </div>
+      <div class="small">${x.date||'-'}</div>
+      ${x.notes?`<div class="small">${x.notes}</div>`:''}
+    </div>
+  `).join('') ||
+  '<div class="muted">لا توجد حركات صندوق بعد.</div>';
 }
 refresh();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
