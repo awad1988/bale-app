@@ -13,7 +13,7 @@
     header h1{font-size:18px;margin:0}.status{font-size:12px;background:#ffffff18;padding:6px 9px;border-radius:999px}
     .wrap{max-width:980px;margin:auto;padding:14px 14px 90px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 2px 8px #0f172a08}.card h3{margin:0 0 8px;font-size:15px}.metric{font-size:24px;font-weight:800}.muted{color:var(--muted);font-size:13px}
-    nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom)}nav button{border:0;background:transparent;padding:10px 4px;font-size:12px;color:var(--muted)}nav button.active{color:var(--accent);font-weight:800}
+    nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(6,1fr);padding-bottom:env(safe-area-inset-bottom)}nav button{border:0;background:transparent;padding:10px 4px;font-size:12px;color:var(--muted)}nav button.active{color:var(--accent);font-weight:800}
     section{display:none}section.active{display:block}.section-title{display:flex;justify-content:space-between;align-items:center;margin:8px 0 12px}.section-title h2{font-size:20px;margin:0}
     label{font-size:13px;font-weight:700;display:block;margin:10px 0 5px}input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit}textarea{min-height:80px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{border:0;border-radius:10px;padding:11px 14px;font-weight:800;cursor:pointer}.btn.primary{background:var(--accent);color:#fff}.btn.secondary{background:#e2e8f0;color:var(--ink)}.btn.danger{background:#fee2e2;color:var(--danger)}.btn.wide{width:100%;margin-top:12px}
     table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}.pill{display:inline-block;padding:4px 7px;border-radius:999px;font-size:11px;background:#ecfeff;color:#155e75}.pill.pending{background:#fff7ed;color:var(--warn)}.pill.ok{background:#ecfdf5;color:#166534}
@@ -30,6 +30,7 @@
   <button data-target="shipments">الشحنات</button>
   <button data-target="inventory">المخزون</button>
   <button data-target="customers">الزبائن</button>
+  <button data-target="cash">الصندوق</button>
   <button data-target="assistant">الوكيل</button>
 </nav>
 <div class="wrap">
@@ -82,7 +83,103 @@
   </div>
   <div class="list" id="customerList"></div>
 </section>
+<section id="cash">
+  <div class="section-title">
+    <h2>الصندوق والمصاريف</h2>
+  </div>
 
+  <div class="grid">
+    <div class="card">
+      <h3>إجمالي الداخل</h3>
+      <div class="metric" id="cashIn">0.00</div>
+      <div class="muted">د.أ</div>
+    </div>
+
+    <div class="card">
+      <h3>إجمالي الخارج</h3>
+      <div class="metric" id="cashOut">0.00</div>
+      <div class="muted">د.أ</div>
+    </div>
+
+    <div class="card">
+      <h3>رصيد الصندوق</h3>
+      <div class="metric" id="cashBalance">0.00</div>
+      <div class="muted">د.أ</div>
+    </div>
+
+    <div class="card">
+      <h3>إجمالي المصاريف</h3>
+      <div class="metric" id="expenseTotal">0.00</div>
+      <div class="muted">د.أ</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>تسجيل مصروف</h3>
+
+    <label>نوع المصروف</label>
+    <select id="expenseCategory">
+      <option>رواتب</option>
+      <option>إيجار</option>
+      <option>ديزل وبنزين</option>
+      <option>توصيل ونقل</option>
+      <option>طعام</option>
+      <option>صيانة</option>
+      <option>كهرباء وماء</option>
+      <option>مصروف عام</option>
+      <option>أخرى</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>المبلغ</label>
+        <input id="expenseAmount" type="number" step="0.01">
+      </div>
+
+      <div>
+        <label>التاريخ</label>
+        <input id="expenseDate" type="date">
+      </div>
+    </div>
+
+    <label>ملاحظة</label>
+    <textarea id="expenseNotes" placeholder="مثال: ديزل سيارة التوصيل"></textarea>
+
+    <button class="btn primary wide" onclick="saveExpense()">حفظ المصروف</button>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>إضافة حركة صندوق</h3>
+
+    <label>نوع الحركة</label>
+    <select id="cashType">
+      <option value="in">إيداع / داخل</option>
+      <option value="out">سحب / خارج</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>المبلغ</label>
+        <input id="cashAmount" type="number" step="0.01">
+      </div>
+
+      <div>
+        <label>التاريخ</label>
+        <input id="cashDate" type="date">
+      </div>
+    </div>
+
+    <label>ملاحظة</label>
+    <textarea id="cashNotes" placeholder="مثال: إيداع نقدي بالصندوق"></textarea>
+
+    <button class="btn primary wide" onclick="saveCashMovement()">حفظ الحركة</button>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>حركة الصندوق</h3>
+    <div id="cashMovementList" class="list"></div>
+  </div>
+</section>
 <section id="assistant">
   <div class="section-title"><h2>وكيل الذكاء الاصطناعي</h2><span class="pill pending">تجريبي</span></div>
   <div class="assistant">
@@ -121,6 +218,57 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.query
 function toggleShipmentForm(){document.getElementById('shipmentForm').classList.toggle('hidden')}
 function toggleBaleForm(){document.getElementById('baleForm').classList.toggle('hidden')}
 function toggleCustomerForm(){document.getElementById('customerForm').classList.toggle('hidden')}
+  async function saveExpense(){
+  const amount=n('expenseAmount');
+  if(amount<=0) return alert('أدخل مبلغ المصروف');
+
+  const x={
+    category:v('expenseCategory'),
+    amount:amount,
+    date:v('expenseDate'),
+    notes:v('expenseNotes')
+  };
+
+  try{
+    await api('/api/expenses',{
+      method:'POST',
+      body:JSON.stringify(x)
+    });
+
+    document.getElementById('expenseAmount').value='';
+    document.getElementById('expenseNotes').value='';
+    alert('تم حفظ المصروف');
+    await refresh();
+  }catch(e){
+    alert(e.message);
+  }
+}
+
+async function saveCashMovement(){
+  const amount=n('cashAmount');
+  if(amount<=0) return alert('أدخل مبلغ الحركة');
+
+  const x={
+    type:v('cashType'),
+    amount:amount,
+    date:v('cashDate'),
+    notes:v('cashNotes')
+  };
+
+  try{
+    await api('/api/cash-movements',{
+      method:'POST',
+      body:JSON.stringify(x)
+    });
+
+    document.getElementById('cashAmount').value='';
+    document.getElementById('cashNotes').value='';
+    alert('تم حفظ حركة الصندوق');
+    await refresh();
+  }catch(e){
+    alert(e.message);
+  }
+}
 async function saveShipment(){
   if(!v('containerName')) return alert('أدخل اسم أو رقم الكونتينر');
   const x={id:uid(),supplier:v('supplier'),container:v('containerName'),purchaseDate:v('purchaseDate'),arrivalDate:v('arrivalDate'),fx:n('fx'),season:v('season'),customs:n('customs'),clearance:n('clearance'),otherCost:n('otherCost'),notes:v('shipNotes')};
