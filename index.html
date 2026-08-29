@@ -309,6 +309,28 @@ async function saveSupplier(){
     alert(e.message);
   }
 }
+  function supplierStatement(id){
+  const supplier=(data.suppliers||[]).find(
+    x=>String(x.id)===String(id)
+  );
+
+  if(!supplier) return alert('المورد غير موجود');
+
+  const payments=(data.supplierPayments||[])
+    .filter(x=>String(x.supplierId)===String(id))
+    .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+
+  const lines=payments.map(p=>
+    `${p.date ? new Date(p.date).toLocaleDateString('en-GB') : '-'} - ${money(p.amount)} د.أ${p.notes ? ' - '+p.notes : ''}`
+  );
+
+  const text=
+    `كشف حساب المورد: ${supplier.name}\n`+
+    `الرصيد الحالي: ${money(supplier.balance)} د.أ\n\n`+
+    (lines.length ? lines.join('\n') : 'لا توجد دفعات مسجلة.');
+
+  alert(text);
+}
   function setTodayDates(){
   const today=new Date().toISOString().slice(0,10);
 
@@ -520,12 +542,17 @@ document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div cl
 
       ${x.notes?`<div class="small">${x.notes}</div>`:''}
 
-      <div style="margin-top:8px">
-        <button class="btn secondary"
-          onclick="addSupplierPayment('${x.id}')">
-          تسجيل دفعة
-        </button>
-      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+  <button class="btn secondary"
+    onclick="addSupplierPayment('${x.id}')">
+    تسجيل دفعة
+  </button>
+
+  <button class="btn secondary"
+    onclick="supplierStatement('${x.id}')">
+    كشف حساب
+  </button>
+</div>
     </div>
   `).join('') ||
   '<div class="muted">لا يوجد موردون بعد.</div>';
