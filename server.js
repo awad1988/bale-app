@@ -334,6 +334,51 @@ app.post('/api/cash-movements', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
+app.post('/api/suppliers', async (req, res) => {
+  const x = req.body || {};
+
+  try {
+    await supabaseRequest('suppliers', {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        name: x.name,
+        phone: x.phone || '',
+        balance: Number(x.balance || 0),
+        notes: x.notes || ''
+      })
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/supplier-payments', async (req, res) => {
+  const x = req.body || {};
+
+  try {
+    await supabaseRequest('supplier_payments', {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        supplier_id: Number(x.supplierId),
+        amount: Number(x.amount || 0),
+        payment_date: cleanDate(x.date) || new Date().toISOString().slice(0, 10),
+        notes: x.notes || ''
+      })
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
