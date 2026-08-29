@@ -477,7 +477,7 @@ document.getElementById('cashMovementList').innerHTML=
         <b>${x.label}</b>
         <b>${money(x.amount)} د.أ</b>
       </div>
-      <div class="small">${x.date||'-'}</div>
+      <div class="small">${x.date ? new Date(x.date).toLocaleDateString('en-GB') : '-'}</div>
       ${x.notes?`<div class="small">${x.notes}</div>`:''}
     </div>
   `).join('') ||
