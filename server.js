@@ -75,14 +75,15 @@ app.get('/api/health', async (_req, res) => {
 
 app.get('/api/data', async (_req, res) => {
   try {
-    const [shipments, bales, customers, payments, sales] = await Promise.all([
-      supabaseRequest('shipments?select=*&order=created_at.asc'),
-      supabaseRequest('bales?select=*&order=created_at.asc'),
-      supabaseRequest('customers?select=*&order=created_at.asc'),
-supabaseRequest('payments?select=*&order=paid_at.asc'),
-supabaseRequest('sales?select=*')
+  const [shipments, bales, customers, payments, sales, expenses, cashMovements] = await Promise.all([
+  supabaseRequest('shipments?select=*&order=created_at.asc'),
+  supabaseRequest('bales?select=*&order=created_at.asc'),
+  supabaseRequest('customers?select=*&order=created_at.asc'),
+  supabaseRequest('payments?select=*&order=paid_at.asc'),
+  supabaseRequest('sales?select=*'),
+  supabaseRequest('expenses?select=*&order=expense_date.asc'),
+  supabaseRequest('cash_movements?select=*&order=movement_date.asc')
 ]);
-
     res.json({
       shipments: (shipments || []).map(x => ({
         id: x.id,
@@ -128,7 +129,25 @@ supabaseRequest('sales?select=*')
   amount: rowNum(x.total_jod),
   date: x.sale_date || x.created_at || null,
   notes: x.notes || ''
-    }))
+})),
+
+expenses: (expenses || []).map(x => ({
+  id: x.id,
+  category: x.category || '',
+  amount: rowNum(x.amount),
+  date: x.expense_date || null,
+  notes: x.notes || ''
+})),
+
+cashMovements: (cashMovements || []).map(x => ({
+  id: x.id,
+  type: x.movement_type || '',
+  amount: rowNum(x.amount),
+  date: x.movement_date || null,
+  referenceType: x.reference_type || '',
+  referenceId: x.reference_id || '',
+  notes: x.notes || ''
+}))
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
