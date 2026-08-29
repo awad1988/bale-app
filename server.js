@@ -161,7 +161,7 @@ cashMovements: (cashMovements || []).map(x => ({
 supplierPayments: (supplierPayments || []).map(x => ({
   id: x.id,
   supplierId: x.supplier_id,
-  amount: rowNum(x.amount),
+  amount: rowNum(x.amount_jod),
   date: x.payment_date || null,
   notes: x.notes || ''
 }))
