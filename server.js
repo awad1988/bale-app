@@ -75,14 +75,16 @@ app.get('/api/health', async (_req, res) => {
 
 app.get('/api/data', async (_req, res) => {
   try {
-  const [shipments, bales, customers, payments, sales, expenses, cashMovements] = await Promise.all([
+  const [shipments, bales, customers, payments, sales, expenses, cashMovements, suppliers, supplierPayments] = await Promise.all([
   supabaseRequest('shipments?select=*&order=created_at.asc'),
   supabaseRequest('bales?select=*&order=created_at.asc'),
   supabaseRequest('customers?select=*&order=created_at.asc'),
   supabaseRequest('payments?select=*&order=paid_at.asc'),
   supabaseRequest('sales?select=*'),
   supabaseRequest('expenses?select=*&order=expense_date.asc'),
-  supabaseRequest('cash_movements?select=*&order=movement_date.asc')
+  supabaseRequest('cash_movements?select=*&order=movement_date.asc'),
+    supabaseRequest('suppliers?select=*&order=created_at.asc'),
+supabaseRequest('supplier_payments?select=*&order=payment_date.asc')
 ]);
     res.json({
       shipments: (shipments || []).map(x => ({
