@@ -251,6 +251,53 @@ app.post('/api/sales', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
+app.post('/api/expenses', async (req, res) => {
+  const x = req.body || {};
+
+  try {
+    await supabaseRequest('expenses', {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        category: x.category || 'عام',
+        amount: Number(x.amount || 0),
+        expense_date: cleanDate(x.date) || new Date().toISOString().slice(0, 10),
+        notes: x.notes || ''
+      })
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/cash-movements', async (req, res) => {
+  const x = req.body || {};
+
+  try {
+    await supabaseRequest('cash_movements', {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        movement_type: x.type || 'manual',
+        amount: Number(x.amount || 0),
+        movement_date: cleanDate(x.date) || new Date().toISOString().slice(0, 10),
+        reference_type: x.referenceType || '',
+        reference_id: x.referenceId || '',
+        notes: x.notes || ''
+      })
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
