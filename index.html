@@ -13,7 +13,7 @@
     header h1{font-size:18px;margin:0}.status{font-size:12px;background:#ffffff18;padding:6px 9px;border-radius:999px}
     .wrap{max-width:980px;margin:auto;padding:14px 14px 90px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 2px 8px #0f172a08}.card h3{margin:0 0 8px;font-size:15px}.metric{font-size:24px;font-weight:800}.muted{color:var(--muted);font-size:13px}
-    nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(6,1fr);padding-bottom:env(safe-area-inset-bottom)}nav button{border:0;background:transparent;padding:10px 4px;font-size:12px;color:var(--muted)}nav button.active{color:var(--accent);font-weight:800}
+    nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(7,1fr);padding-bottom:env(safe-area-inset-bottom)}nav button{border:0;background:transparent;padding:10px 4px;font-size:12px;color:var(--muted)}nav button.active{color:var(--accent);font-weight:800}
     section{display:none}section.active{display:block}.section-title{display:flex;justify-content:space-between;align-items:center;margin:8px 0 12px}.section-title h2{font-size:20px;margin:0}
     label{font-size:13px;font-weight:700;display:block;margin:10px 0 5px}input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit}textarea{min-height:80px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{border:0;border-radius:10px;padding:11px 14px;font-weight:800;cursor:pointer}.btn.primary{background:var(--accent);color:#fff}.btn.secondary{background:#e2e8f0;color:var(--ink)}.btn.danger{background:#fee2e2;color:var(--danger)}.btn.wide{width:100%;margin-top:12px}
     table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 7px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}.pill{display:inline-block;padding:4px 7px;border-radius:999px;font-size:11px;background:#ecfeff;color:#155e75}.pill.pending{background:#fff7ed;color:var(--warn)}.pill.ok{background:#ecfdf5;color:#166534}
@@ -30,6 +30,7 @@
   <button data-target="shipments">الشحنات</button>
   <button data-target="inventory">المخزون</button>
   <button data-target="customers">الزبائن</button>
+  <button data-target="suppliers">الموردين</button>
   <button data-target="cash">الصندوق</button>
   <button data-target="assistant">الوكيل</button>
 </nav>
@@ -82,6 +83,36 @@
     <button class="btn primary wide" onclick="saveCustomer()">حفظ الزبون</button>
   </div>
   <div class="list" id="customerList"></div>
+</section>
+  <section id="suppliers">
+  <div class="section-title">
+    <h2>الموردين والحسابات</h2>
+    <button class="btn primary" onclick="toggleSupplierForm()">+ مورد</button>
+  </div>
+
+  <div id="supplierForm" class="card hidden">
+    <div class="row">
+      <div>
+        <label>اسم المورد</label>
+        <input id="supplierName">
+      </div>
+
+      <div>
+        <label>الهاتف</label>
+        <input id="supplierPhone" inputmode="tel">
+      </div>
+    </div>
+
+    <label>الرصيد الافتتاحي</label>
+    <input id="supplierBalance" type="number" step="0.01" value="0">
+
+    <label>ملاحظات</label>
+    <textarea id="supplierNotes"></textarea>
+
+    <button class="btn primary wide" onclick="saveSupplier()">حفظ المورد</button>
+  </div>
+
+  <div class="list" id="supplierList"></div>
 </section>
 <section id="cash">
   <div class="section-title">
@@ -219,6 +250,65 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.query
 function toggleShipmentForm(){document.getElementById('shipmentForm').classList.toggle('hidden')}
 function toggleBaleForm(){document.getElementById('baleForm').classList.toggle('hidden')}
 function toggleCustomerForm(){document.getElementById('customerForm').classList.toggle('hidden')}
+  
+function toggleSupplierForm(){
+  document.getElementById('supplierForm').classList.toggle('hidden');
+}
+
+async function saveSupplier(){
+  const name=v('supplierName').trim();
+  if(!name) return alert('أدخل اسم المورد');
+
+  const x={
+    name:name,
+    phone:v('supplierPhone'),
+    balance:n('supplierBalance'),
+    notes:v('supplierNotes')
+  };
+
+  try{
+    await api('/api/suppliers',{
+      method:'POST',
+      body:JSON.stringify(x)
+    });
+
+    document.getElementById('supplierName').value='';
+    document.getElementById('supplierPhone').value='';
+    document.getElementById('supplierBalance').value='0';
+    document.getElementById('supplierNotes').value='';
+
+    alert('تم حفظ المورد');
+    await refresh();
+  }catch(e){
+    alert(e.message);
+  }
+}
+  async function addSupplierPayment(id){
+  const supplier=(data.suppliers||[]).find(x=>String(x.id)===String(id));
+  if(!supplier) return alert('المورد غير موجود');
+
+  const amount=Number(prompt('أدخل مبلغ الدفعة للمورد '+supplier.name) || 0);
+  if(amount<=0) return;
+
+  const notes=prompt('ملاحظة على الدفعة (اختياري)') || '';
+
+  try{
+    await api('/api/supplier-payments',{
+      method:'POST',
+      body:JSON.stringify({
+        supplierId:id,
+        amount:amount,
+        date:new Date().toISOString().slice(0,10),
+        notes:notes
+      })
+    });
+
+    alert('تم حفظ دفعة المورد');
+    await refresh();
+  }catch(e){
+    alert(e.message);
+  }
+}
   function setTodayDates(){
   const today=new Date().toISOString().slice(0,10);
 
@@ -417,6 +507,28 @@ function renderAll(){
  const sel=document.getElementById('baleShipment');sel.innerHTML=data.shipments.map(s=>`<option value="${s.id}">${s.container}</option>`).join('');
   document.getElementById('baleRows').innerHTML=data.bales.map(b=>`<tr><td><b>${b.nameAr||'-'}</b><div class="small">${b.nameEn||''}</div></td><td>${b.grade}</td><td>${b.weight||0}</td><td>${money(b.buyUsd)}</td><td>${money(baleJod(b))}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد بالات بعد.</td></tr>';
 document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div class="item"><div class="top"><b>${c.name}</b><b>${money(c.debt)} د.أ</b></div><div class="small">${c.phone||'بدون هاتف'}</div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn secondary" onclick="addSale('${c.id}')">تسجيل مبيعة</button><button class="btn secondary" onclick="addPayment('${c.id}')">تسجيل دفعة</button><button class="btn secondary" onclick="statement('${c.id}')">كشف حساب</button></div></div>`).join('')||'<div class="muted">لا يوجد زبائن بعد.</div>';
+  const suppliers=data.suppliers||[];
+    document.getElementById('supplierList').innerHTML=
+  suppliers.map(x=>`
+    <div class="item">
+      <div class="top">
+        <b>${x.name}</b>
+        <b>${money(x.balance)} د.أ</b>
+      </div>
+
+      <div class="small">${x.phone||'بدون هاتف'}</div>
+
+      ${x.notes?`<div class="small">${x.notes}</div>`:''}
+
+      <div style="margin-top:8px">
+        <button class="btn secondary"
+          onclick="addSupplierPayment('${x.id}')">
+          تسجيل دفعة
+        </button>
+      </div>
+    </div>
+  `).join('') ||
+  '<div class="muted">لا يوجد موردون بعد.</div>';
   const expenses=data.expenses||[];
 const cashMovements=data.cashMovements||[];
 const payments=data.payments||[];
