@@ -149,6 +149,21 @@ cashMovements: (cashMovements || []).map(x => ({
   referenceType: x.reference_type || '',
   referenceId: x.reference_id || '',
   notes: x.notes || ''
+})),
+      suppliers: (suppliers || []).map(x => ({
+  id: x.id,
+  name: x.name,
+  phone: x.phone || '',
+  balance: rowNum(x.balance),
+  notes: x.notes || ''
+})),
+
+supplierPayments: (supplierPayments || []).map(x => ({
+  id: x.id,
+  supplierId: x.supplier_id,
+  amount: rowNum(x.amount),
+  date: x.payment_date || null,
+  notes: x.notes || ''
 }))
     });
   } catch (e) {
