@@ -362,7 +362,7 @@ function supplierStatement(id){
 
       purchaseMovements.push({
         type:'purchase',
-        date:s.purchaseDate || s.arrivalDate || '',
+        date:s.purchaseDate || s.arrivalDate || s.createdAt || '',
         amount:amount,
         title:b.nameAr || b.nameEn || 'بالة',
         container:s.container || ''
