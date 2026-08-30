@@ -664,6 +664,10 @@ const totalSales=(data.sales||[])
 const totalPayments=(data.payments||[])
   .filter(p=>String(p.customerId)===String(cid))
   .reduce((sum,p)=>sum+Number(p.amount||0),0);
+  const openingDebt =
+  Number(c.debt || 0)
+  - Number(totalSales || 0)
+  + Number(totalPayments || 0);
   document.getElementById('customerList').innerHTML=`
     <div class="card">
       <h2>كشف حساب ${c.name}</h2>
@@ -671,6 +675,10 @@ const totalPayments=(data.payments||[])
       <div style="font-size:18px;margin:15px 0">
         الرصيد الحالي: <b>${money(c.debt)} د.أ</b>
       </div>
+      <div style="margin:10px 0">
+  الرصيد الافتتاحي:
+  <b>${money(openingDebt)} د.أ</b>
+</div>
       
 <div style="margin:10px 0">
   إجمالي المبيعات: <b>${money(totalSales)} د.أ</b><br>
