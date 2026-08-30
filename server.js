@@ -380,6 +380,23 @@ app.post('/api/supplier-payments', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
+app.delete('/api/suppliers/:id', async (req, res) => {
+  const id = Number(req.params.id);
+
+  try {
+    await supabaseRequest(`supplier_payments?supplier_id=eq.${id}`, {
+      method: 'DELETE'
+    });
+
+    await supabaseRequest(`suppliers?id=eq.${id}`, {
+      method: 'DELETE'
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
