@@ -434,7 +434,25 @@ async function saveCashMovement(){
 }
 async function saveShipment(){
   if(!v('containerName')) return alert('أدخل اسم أو رقم الكونتينر');
-  const x={id:uid(),supplier:v('supplier'),container:v('containerName'),purchaseDate:v('purchaseDate'),arrivalDate:v('arrivalDate'),fx:n('fx'),season:v('season'),customs:n('customs'),clearance:n('clearance'),otherCost:n('otherCost'),notes:v('shipNotes')};
+  const supplierName=v('supplier').trim();
+const supplierObj=(data.suppliers||[]).find(
+  s=>String(s.name||'').trim()===supplierName
+);
+
+const x={
+  id:uid(),
+  supplier:supplierName,
+  supplierId:supplierObj ? supplierObj.id : null,
+  container:v('containerName'),
+  purchaseDate:v('purchaseDate'),
+  arrivalDate:v('arrivalDate'),
+  fx:n('fx'),
+  season:v('season'),
+  customs:n('customs'),
+  clearance:n('clearance'),
+  otherCost:n('otherCost'),
+  notes:v('shipNotes')
+};
   try{await api('/api/shipments',{method:'POST',body:JSON.stringify(x)});['supplier','containerName','purchaseDate','arrivalDate','fx','customs','clearance','otherCost','shipNotes'].forEach(x=>document.getElementById(x).value='');toggleShipmentForm();await refresh()}catch(e){alert(e.message)}
 }
 function shipmentBales(sid){return data.bales.filter(b=>b.shipmentId===sid)}
