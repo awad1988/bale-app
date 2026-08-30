@@ -287,6 +287,30 @@ async function saveSupplier(){
     alert(e.message);
   }
 }
+  async function deleteSupplier(id){
+  const supplier=(data.suppliers||[]).find(
+    x=>String(x.id)===String(id)
+  );
+
+  if(!supplier) return alert('المورد غير موجود');
+
+  const ok=confirm(
+    'هل أنت متأكد من حذف المورد '+supplier.name+'؟'
+  );
+
+  if(!ok) return;
+
+  try{
+    await api('/api/suppliers/'+id,{
+      method:'DELETE'
+    });
+
+    alert('تم حذف المورد');
+    await refresh();
+  }catch(e){
+    alert(e.message);
+  }
+}
   async function addSupplierPayment(id){
   const supplier=(data.suppliers||[]).find(x=>String(x.id)===String(id));
   if(!supplier) return alert('المورد غير موجود');
@@ -671,6 +695,10 @@ document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div cl
     onclick="supplierStatement('${x.id}')">
     كشف حساب
   </button>
+  <button class="btn secondary"
+  onclick="deleteSupplier('${x.id}')">
+  حذف
+</button>
 </div>
     </div>
   `).join('') ||
