@@ -386,7 +386,10 @@ function supplierStatement(id){
   const totalPayments=payments.reduce(
     (sum,x)=>sum+Number(x.amount||0),0
   );
-
+const openingBalance =
+  Number(supplier.balance || 0)
+  - Number(totalPurchases || 0)
+  + Number(totalPayments || 0);
   const movements=[
     ...purchaseMovements,
     ...payments
@@ -431,7 +434,10 @@ function supplierStatement(id){
         الرصيد الحالي:
         <b>${money(supplier.balance)} د.أ</b>
       </div>
-
+<div style="margin:10px 0">
+  الرصيد الافتتاحي:
+  <b>${money(openingBalance)} د.أ</b>
+</div>
       <div style="margin:10px 0">
         إجمالي المشتريات:
         <b>${money(totalPurchases)} د.أ</b>
