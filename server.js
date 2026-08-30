@@ -97,6 +97,7 @@ supabaseRequest('supplier_payments?select=*&order=payment_date.asc')
         container: x.container_name,
         purchaseDate: x.purchase_date,
         arrivalDate: x.arrival_date,
+        createdAt: x.created_at,
         fx: rowNum(x.fx),
         season: x.season,
         customs: rowNum(x.customs),
