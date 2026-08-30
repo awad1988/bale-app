@@ -90,6 +90,7 @@ supabaseRequest('supplier_payments?select=*&order=payment_date.asc')
       shipments: (shipments || []).map(x => ({
         id: x.id,
         supplier: x.supplier,
+        supplierId: x.supplier_id,
         container: x.container_name,
         purchaseDate: x.purchase_date,
         arrivalDate: x.arrival_date,
