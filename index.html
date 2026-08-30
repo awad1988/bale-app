@@ -668,6 +668,12 @@ const totalPayments=(data.payments||[])
   Number(c.debt || 0)
   - Number(totalSales || 0)
   + Number(totalPayments || 0);
+  const openingMovementHtml=`
+  <div style="padding:10px 0;border-bottom:1px solid #ddd">
+    <div><b>رصيد افتتاحي</b></div>
+    <div>المبلغ: <b>${money(openingDebt)} د.أ</b></div>
+  </div>
+`;
   document.getElementById('customerList').innerHTML=`
     <div class="card">
       <h2>كشف حساب ${c.name}</h2>
@@ -685,7 +691,7 @@ const totalPayments=(data.payments||[])
   إجمالي الدفعات: <b>${money(totalPayments)} د.أ</b>
 </div>
       <h3>حركة الحساب</h3>
-${movementsHtml}
+${movementsHtml}${openingMovementHtml}
       <button class="btn secondary wide" onclick="renderAll()">
         رجوع للزبائن
       </button>
