@@ -229,7 +229,11 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function v(id){return document.getElementById(id).value}
 function n(id){return Number(v(id)||0)}
 async function api(url, options={}){
-  const r=await fetch(url,{headers:{'Content-Type':'application/json'},...options});
+  const r=await fetch(url,{
+  cache:'no-store',
+  headers:{'Content-Type':'application/json'},
+  ...options
+});
   const body=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(body.error||'تعذر الاتصال بالخادم');
   return body;
