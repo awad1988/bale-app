@@ -183,6 +183,7 @@ app.post('/api/shipments', async (req, res) => {
       body: JSON.stringify({
         id: x.id,
         supplier: x.supplier || '',
+        supplier_id: x.supplierId ? Number(x.supplierId) : null,
         container_name: x.container,
         purchase_date: cleanDate(x.purchaseDate),
         arrival_date: cleanDate(x.arrivalDate),
