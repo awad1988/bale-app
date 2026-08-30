@@ -387,7 +387,9 @@ app.delete('/api/suppliers/:id', async (req, res) => {
     await supabaseRequest(`supplier_payments?supplier_id=eq.${id}`, {
       method: 'DELETE'
     });
-
+await supabaseRequest(`supplier_purchases?supplier_id=eq.${id}`, {
+  method: 'DELETE'
+});
     await supabaseRequest(`suppliers?id=eq.${id}`, {
       method: 'DELETE'
     });
