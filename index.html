@@ -309,27 +309,68 @@ async function saveSupplier(){
     alert(e.message);
   }
 }
-  function supplierStatement(id){
+function supplierStatement(id){
   const supplier=(data.suppliers||[]).find(
     x=>String(x.id)===String(id)
   );
 
-  if(!supplier) return alert('المورد غير موجود');
+  if(!supplier){
+    alert('المورد غير موجود');
+    return;
+  }
 
   const payments=(data.supplierPayments||[])
     .filter(x=>String(x.supplierId)===String(id))
     .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
 
-  const lines=payments.map(p=>
-    `${p.date ? new Date(p.date).toLocaleDateString('en-GB') : '-'} - ${money(p.amount)} د.أ${p.notes ? ' - '+p.notes : ''}`
+  const totalPayments=payments.reduce(
+    (sum,p)=>sum+Number(p.amount||0),0
   );
 
-  const text=
-    `كشف حساب المورد: ${supplier.name}\n`+
-    `الرصيد الحالي: ${money(supplier.balance)} د.أ\n\n`+
-    (lines.length ? lines.join('\n') : 'لا توجد دفعات مسجلة.');
+  const movementsHtml=payments.length
+    ? payments.map(p=>{
+        const d=p.date
+          ? new Date(p.date).toLocaleDateString('en-GB')
+          : '-';
 
-  alert(text);
+        return `
+          <div style="padding:10px 0;border-bottom:1px solid #ddd">
+            <div><b>دفعة مورد</b></div>
+            <div>المبلغ: <b>${money(p.amount)} د.أ</b></div>
+            <div class="small">التاريخ: ${d}</div>
+            ${p.notes ? `<div class="small">ملاحظة: ${p.notes}</div>` : ''}
+          </div>
+        `;
+      }).join('')
+    : '<div class="muted">لا توجد دفعات مسجلة.</div>';
+
+  document.getElementById('supplierList').innerHTML=`
+    <div class="card">
+      <h2>كشف حساب المورد: ${supplier.name}</h2>
+
+      <div style="font-size:18px;margin:15px 0">
+        الرصيد الحالي:
+        <b>${money(supplier.balance)} د.أ</b>
+      </div>
+
+      <div style="margin:10px 0">
+        إجمالي الدفعات:
+        <b>${money(totalPayments)} د.أ</b>
+      </div>
+
+      <h3>حركة الحساب</h3>
+
+      ${movementsHtml}
+
+      <button
+        class="btn secondary wide"
+        onclick="renderAll()"
+        style="margin-top:15px"
+      >
+        رجوع للموردين
+      </button>
+    </div>
+  `;
 }
   function setTodayDates(){
   const today=new Date().toISOString().slice(0,10);
