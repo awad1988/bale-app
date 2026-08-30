@@ -75,6 +75,9 @@ app.get('/api/health', async (_req, res) => {
 
 app.get('/api/data', async (_req, res) => {
   try {
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+res.set('Pragma','no-cache');
+res.set('Expires','0');
   const [shipments, bales, customers, payments, sales, expenses, cashMovements, suppliers, supplierPayments] = await Promise.all([
   supabaseRequest('shipments?select=*&order=created_at.asc'),
   supabaseRequest('bales?select=*&order=created_at.asc'),
