@@ -391,9 +391,14 @@ const openingBalance =
   - Number(totalPurchases || 0)
   + Number(totalPayments || 0);
   const movements=[
-    ...purchaseMovements,
-    ...payments
-  ].sort(
+  {
+    type:'opening',
+    date:'',
+    amount:openingBalance
+  },
+  ...purchaseMovements,
+  ...payments
+].sort(
     (a,b)=>new Date(b.date||0)-new Date(a.date||0)
   );
 
@@ -402,6 +407,14 @@ const openingBalance =
         const d=m.date
           ? new Date(m.date).toLocaleDateString('en-GB')
           : '-';
+      if(m.type==='opening'){
+  return `
+    <div style="padding:10px 0;border-bottom:1px solid #ddd">
+      <div><b>رصيد افتتاحي</b></div>
+      <div>المبلغ: <b>${money(m.amount)} د.أ</b></div>
+    </div>
+  `;
+}
 
         if(m.type==='purchase'){
           return `
