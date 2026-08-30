@@ -319,30 +319,81 @@ function supplierStatement(id){
     return;
   }
 
+  const shipments=(data.shipments||[])
+    .filter(s=>String(s.supplierId)===String(id));
+
+  const purchaseMovements=[];
+
+  shipments.forEach(s=>{
+    const shipmentBales=(data.bales||[])
+      .filter(b=>String(b.shipmentId)===String(s.id));
+
+    shipmentBales.forEach(b=>{
+      const amount=
+        Number(b.buyUsd||0) * Number(s.fx||0);
+
+      purchaseMovements.push({
+        type:'purchase',
+        date:s.purchaseDate || s.arrivalDate || '',
+        amount:amount,
+        title:b.nameAr || b.nameEn || 'بالة',
+        container:s.container || ''
+      });
+    });
+  });
+
   const payments=(data.supplierPayments||[])
     .filter(x=>String(x.supplierId)===String(id))
-    .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+    .map(p=>({
+      type:'payment',
+      date:p.date || '',
+      amount:Number(p.amount||0),
+      notes:p.notes || ''
+    }));
 
-  const totalPayments=payments.reduce(
-    (sum,p)=>sum+Number(p.amount||0),0
+  const totalPurchases=purchaseMovements.reduce(
+    (sum,x)=>sum+Number(x.amount||0),0
   );
 
-  const movementsHtml=payments.length
-    ? payments.map(p=>{
-        const d=p.date
-          ? new Date(p.date).toLocaleDateString('en-GB')
+  const totalPayments=payments.reduce(
+    (sum,x)=>sum+Number(x.amount||0),0
+  );
+
+  const movements=[
+    ...purchaseMovements,
+    ...payments
+  ].sort(
+    (a,b)=>new Date(b.date||0)-new Date(a.date||0)
+  );
+
+  const movementsHtml=movements.length
+    ? movements.map(m=>{
+        const d=m.date
+          ? new Date(m.date).toLocaleDateString('en-GB')
           : '-';
+
+        if(m.type==='purchase'){
+          return `
+            <div style="padding:10px 0;border-bottom:1px solid #ddd">
+              <div><b>مشتريات من المورد</b></div>
+              <div>الصنف: <b>${m.title}</b></div>
+              ${m.container ? `<div class="small">الشحنة: ${m.container}</div>` : ''}
+              <div>القيمة: <b>${money(m.amount)} د.أ</b></div>
+              <div class="small">التاريخ: ${d}</div>
+            </div>
+          `;
+        }
 
         return `
           <div style="padding:10px 0;border-bottom:1px solid #ddd">
-            <div><b>دفعة مورد</b></div>
-            <div>المبلغ: <b>${money(p.amount)} د.أ</b></div>
+            <div><b>دفعة للمورد</b></div>
+            <div>المبلغ: <b>${money(m.amount)} د.أ</b></div>
             <div class="small">التاريخ: ${d}</div>
-            ${p.notes ? `<div class="small">ملاحظة: ${p.notes}</div>` : ''}
+            ${m.notes ? `<div class="small">ملاحظة: ${m.notes}</div>` : ''}
           </div>
         `;
       }).join('')
-    : '<div class="muted">لا توجد دفعات مسجلة.</div>';
+    : '<div class="muted">لا توجد حركات مسجلة.</div>';
 
   document.getElementById('supplierList').innerHTML=`
     <div class="card">
@@ -351,6 +402,11 @@ function supplierStatement(id){
       <div style="font-size:18px;margin:15px 0">
         الرصيد الحالي:
         <b>${money(supplier.balance)} د.أ</b>
+      </div>
+
+      <div style="margin:10px 0">
+        إجمالي المشتريات:
+        <b>${money(totalPurchases)} د.أ</b>
       </div>
 
       <div style="margin:10px 0">
