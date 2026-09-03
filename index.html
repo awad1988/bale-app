@@ -743,7 +743,7 @@ function showAgentMessage(message, mode, action){
   if(mode){
     const badge=document.createElement('div');
     badge.style.cssText='font-size:12px;opacity:.75;margin-top:8px';
-    badge.textContent=mode==='ai' ? 'فهم ذكي عبر OpenAI' : 'فهم عربي أساسي — بانتظار مفتاح OpenAI';
+    badge.textContent=mode==='gemini' ? 'فهم ذكي عبر Gemini' : mode==='openai' ? 'فهم ذكي عبر OpenAI' : 'فهم عربي أساسي — بانتظار مفتاح الذكاء الاصطناعي';
     box.appendChild(badge);
   }
 
