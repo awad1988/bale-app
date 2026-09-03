@@ -6,6 +6,8 @@ const port = Number(process.env.PORT || 80);
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
 
@@ -201,6 +203,68 @@ function agentTools() {
       parameters: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'], additionalProperties: false }
     }
   ];
+}
+
+function geminiAgentTools() {
+  return agentTools().map(tool => {
+    const copy = JSON.parse(JSON.stringify(tool));
+    delete copy.strict;
+    delete copy.parameters.additionalProperties;
+
+    for (const property of Object.values(copy.parameters.properties || {})) {
+      if (Array.isArray(property.type)) {
+        property.type = property.type.find(type => type !== 'null') || 'string';
+      }
+    }
+
+    return copy;
+  });
+}
+
+async function callGeminiAgent(prompt, snapshot) {
+  const names = {
+    customers: snapshot.customers.map(item => item.name),
+    suppliers: snapshot.suppliers.map(item => item.name)
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-goog-api-key': GEMINI_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: GEMINI_MODEL,
+        input: [
+          'أنت وكيل محاسبة عربي لتجارة البالات في الأردن.',
+          'اختر وظيفة واحدة فقط من الأدوات المتاحة، ولا ترجع جوابًا نصيًا.',
+          'لا تخترع أسماء أو مبالغ.',
+          'الأسماء المتاحة: ' + JSON.stringify(names),
+          'إذا كان الاسم أو المبلغ ناقصًا أو غير موجود استخدم clarify.',
+          'لا تنفذ أي عملية مالية بنفسك؛ النظام سيعرض تأكيدًا للمالك.',
+          'أمر المستخدم: ' + prompt
+        ].join('\n'),
+        tools: geminiAgentTools()
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = body?.error?.message || `Gemini error ${response.status}`;
+      throw new Error(message);
+    }
+    const call = (body.steps || []).find(item => item.type === 'function_call');
+    if (!call) throw new Error('لم يرجع Gemini أمرًا صالحًا');
+    const args = typeof call.arguments === 'string'
+      ? JSON.parse(call.arguments || '{}')
+      : (call.arguments || {});
+    return { name: call.name, arguments: args };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function callOpenAIAgent(prompt, snapshot) {
@@ -637,16 +701,19 @@ app.post('/api/agent', async (req, res) => {
     let mode = 'local';
     let call;
 
-    if (OPENAI_API_KEY) {
+    if (GEMINI_API_KEY) {
+      call = await callGeminiAgent(prompt, snapshot);
+      mode = 'gemini';
+    } else if (OPENAI_API_KEY) {
       call = await callOpenAIAgent(prompt, snapshot);
-      mode = 'ai';
+      mode = 'openai';
     } else {
       call = localAgentCommand(prompt, snapshot);
     }
 
     res.json(buildAgentResult(call, snapshot, mode));
   } catch (e) {
-    const status = /OpenAI|aborted|fetch/i.test(e.message) ? 502 : 400;
+    const status = /OpenAI|Gemini|aborted|fetch/i.test(e.message) ? 502 : 400;
     res.status(status).json({ error: e.name === 'AbortError' ? 'انتهت مهلة اتصال الذكاء الاصطناعي. حاول مرة أخرى.' : e.message });
   }
 });
