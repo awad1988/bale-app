@@ -52,7 +52,7 @@
 <section id="shipments">
   <div class="section-title"><h2>الشحنات</h2><button class="btn primary" onclick="toggleShipmentForm()">+ شحنة جديدة</button></div>
   <div id="shipmentForm" class="card hidden">
-    <div class="row"><div><label>اسم المورد</label><input id="supplier" placeholder="مثال: الشركة الموردة"></div><div><label>اسم/رقم الكونتينر</label><input id="containerName" placeholder="مثال: Winter 2026-1"></div></div>
+    <div class="row"><div><label>اسم المورد</label><input id="supplier" list="supplierOptions" autocomplete="off" placeholder="اختر موردًا مسجلًا"><datalist id="supplierOptions"></datalist></div><div><label>اسم/رقم الكونتينر</label><input id="containerName" placeholder="مثال: Winter 2026-1"></div></div>
     <div class="row"><div><label>تاريخ الشراء</label><input id="purchaseDate" type="date"></div><div><label>تاريخ الوصول المتوقع</label><input id="arrivalDate" type="date"></div></div>
     <div class="row"><div><label>سعر الصرف: 1 دولار = كم دينار؟</label><input id="fx" type="number" step="0.0001" placeholder="0.709"></div><div><label>الموسم</label><select id="season"><option>شتوي</option><option>صيفي</option></select></div></div>
     <label>الجمارك الإجمالية (يمكن تركها فارغة الآن)</label><input id="customs" type="number" step="0.01" placeholder="مثال: 3000">
@@ -347,36 +347,60 @@ function supplierStatement(id){
     return;
   }
 
-  const shipments=(data.shipments||[])
-    .filter(s=>String(s.supplierId)===String(id));
+  const safe=value=>String(value??'').replace(
+    /[&<>"']/g,
+    char=>({
+      '&':'&amp;',
+      '<':'&lt;',
+      '>':'&gt;',
+      '"':'&quot;',
+      "'":'&#039;'
+    }[char])
+  );
 
-  const purchaseMovements=[];
+  const formatDate=value=>{
+    if(!value) return '-';
+    const date=String(value).slice(0,10).split('-');
+    return date.length===3 ? date.reverse().join('/') : safe(value);
+  };
 
-  shipments.forEach(s=>{
+  const supplierName=String(supplier.name||'').trim();
+  const shipments=(data.shipments||[]).filter(s=>{
+    if(String(s.supplierId)===String(id)) return true;
+    return !s.supplierId &&
+      String(s.supplier||'').trim()===supplierName;
+  });
+
+  const purchaseMovements=shipments.map((s,index)=>{
     const shipmentBales=(data.bales||[])
       .filter(b=>String(b.shipmentId)===String(s.id));
+    const amount=shipmentBales.reduce(
+      (sum,b)=>sum+(Number(b.buyUsd||0)*Number(s.fx||0)),
+      0
+    );
 
-    shipmentBales.forEach(b=>{
-      const amount=
-        Number(b.buyUsd||0) * Number(s.fx||0);
-
-      purchaseMovements.push({
+    return {
         type:'purchase',
         date:s.purchaseDate || s.arrivalDate || s.createdAt || '',
+        createdAt:s.createdAt || '',
         amount:amount,
-        title:b.nameAr || b.nameEn || 'بالة',
-        container:s.container || ''
-      });
-    });
+        notes:[
+          s.container ? 'الشحنة: '+s.container : '',
+          shipmentBales.length ? 'عدد البالات: '+shipmentBales.length : 'لم تُضف بالات للشحنة بعد'
+        ].filter(Boolean).join(' • '),
+        order:index
+      };
   });
 
   const payments=(data.supplierPayments||[])
     .filter(x=>String(x.supplierId)===String(id))
-    .map(p=>({
+    .map((p,index)=>({
       type:'payment',
       date:p.date || '',
+      createdAt:p.createdAt || '',
       amount:Number(p.amount||0),
-      notes:p.notes || ''
+      notes:p.notes || '',
+      order:purchaseMovements.length+index
     }));
 
   const totalPurchases=purchaseMovements.reduce(
@@ -386,84 +410,87 @@ function supplierStatement(id){
   const totalPayments=payments.reduce(
     (sum,x)=>sum+Number(x.amount||0),0
   );
-const openingBalance =
-  Number(supplier.balance || 0)
-  - Number(totalPurchases || 0)
-  + Number(totalPayments || 0);
-  const movements=[
-  {
-    type:'opening',
-    date:'',
-    amount:openingBalance
-  },
-  ...purchaseMovements,
-  ...payments
-].sort(
-    (a,b)=>new Date(b.date||0)-new Date(a.date||0)
-  );
 
-  const movementsHtml=movements.length
-    ? movements.map(m=>{
-        const d=m.date
-          ? new Date(m.date).toLocaleDateString('en-GB')
-          : '-';
-      if(m.type==='opening'){
-  return `
-    <div style="padding:10px 0;border-bottom:1px solid #ddd">
-      <div><b>رصيد افتتاحي</b></div>
-      <div>المبلغ: <b>${money(m.amount)} د.أ</b></div>
-    </div>
-  `;
-}
+  const movements=[...purchaseMovements,...payments].sort((a,b)=>{
+    const aDate=Date.parse(a.date || '') || 0;
+    const bDate=Date.parse(b.date || '') || 0;
+    const aCreated=Date.parse(a.createdAt || '') || 0;
+    const bCreated=Date.parse(b.createdAt || '') || 0;
+    return (bDate-aDate) || (bCreated-aCreated) || (b.order-a.order);
+  });
 
-        if(m.type==='purchase'){
-          return `
-            <div style="padding:10px 0;border-bottom:1px solid #ddd">
-              <div><b>مشتريات من المورد</b></div>
-              <div>الصنف: <b>${m.title}</b></div>
-              ${m.container ? `<div class="small">الشحنة: ${m.container}</div>` : ''}
-              <div>القيمة: <b>${money(m.amount)} د.أ</b></div>
-              <div class="small">التاريخ: ${d}</div>
-            </div>
-          `;
-        }
+  let runningBalance=Number(supplier.balance||0);
 
-        return `
-          <div style="padding:10px 0;border-bottom:1px solid #ddd">
-            <div><b>دفعة للمورد</b></div>
-            <div>المبلغ: <b>${money(m.amount)} د.أ</b></div>
-            <div class="small">التاريخ: ${d}</div>
-            ${m.notes ? `<div class="small">ملاحظة: ${m.notes}</div>` : ''}
-          </div>
-        `;
-      }).join('')
-    : '<div class="muted">لا توجد حركات مسجلة.</div>';
+  movements.forEach(m=>{
+    m.balance=runningBalance;
+    runningBalance += m.type==='purchase'
+      ? -Number(m.amount||0)
+      : Number(m.amount||0);
+  });
+
+  const openingBalance=runningBalance;
+  const statementMovements=[
+    ...movements,
+    {
+      type:'opening',
+      date:'',
+      amount:openingBalance,
+      balance:openingBalance,
+      notes:'بداية الحساب'
+    }
+  ];
+
+  const movementsHtml=statementMovements.map(m=>{
+    const isPurchase=m.type==='purchase';
+    const isPayment=m.type==='payment';
+    const title=isPurchase
+      ? 'مشتريات من المورد'
+      : isPayment
+        ? 'دفعة للمورد'
+        : 'رصيد افتتاحي';
+    const sign=isPurchase ? '+' : isPayment ? '-' : '';
+    const amountColor=isPurchase ? '#b91c1c' : isPayment ? '#166534' : '#0f172a';
+
+    return `
+      <div class="item">
+        <div class="top">
+          <b>نوع الحركة: ${title}</b>
+          <b style="color:${amountColor}">${sign}${money(m.amount)} د.أ</b>
+        </div>
+        <div class="small" style="margin-top:7px">التاريخ: ${formatDate(m.date)}</div>
+        <div class="small">الملاحظات: ${safe(m.notes||'لا توجد ملاحظات')}</div>
+        <div style="margin-top:7px">
+          الرصيد بعد الحركة: <b>${money(m.balance)} د.أ</b>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   document.getElementById('supplierList').innerHTML=`
     <div class="card">
-      <h2>كشف حساب المورد: ${supplier.name}</h2>
+      <h2>كشف حساب المورد: ${safe(supplier.name)}</h2>
 
-      <div style="font-size:18px;margin:15px 0">
-        الرصيد الحالي:
-        <b>${money(supplier.balance)} د.أ</b>
-      </div>
-<div style="margin:10px 0">
-  الرصيد الافتتاحي:
-  <b>${money(openingBalance)} د.أ</b>
-</div>
-      <div style="margin:10px 0">
-        إجمالي المشتريات:
-        <b>${money(totalPurchases)} د.أ</b>
-      </div>
-
-      <div style="margin:10px 0">
-        إجمالي الدفعات:
-        <b>${money(totalPayments)} د.أ</b>
+      <div class="grid" style="margin:15px 0">
+        <div class="card">
+          <div class="small">الرصيد الحالي</div>
+          <div class="metric">${money(supplier.balance)} د.أ</div>
+        </div>
+        <div class="card">
+          <div class="small">الرصيد الافتتاحي</div>
+          <div class="metric">${money(openingBalance)} د.أ</div>
+        </div>
+        <div class="card">
+          <div class="small">إجمالي المشتريات</div>
+          <div class="metric">${money(totalPurchases)} د.أ</div>
+        </div>
+        <div class="card">
+          <div class="small">إجمالي الدفعات</div>
+          <div class="metric">${money(totalPayments)} د.أ</div>
+        </div>
       </div>
 
       <h3>حركة الحساب</h3>
-
-      ${movementsHtml}
+      <div class="list">${movementsHtml}</div>
 
       <button
         class="btn secondary wide"
@@ -538,8 +565,9 @@ async function saveCashMovement(){
 async function saveShipment(){
   if(!v('containerName')) return alert('أدخل اسم أو رقم الكونتينر');
   const supplierName=v('supplier').trim();
+const normalizedSupplierName=supplierName.toLocaleLowerCase('ar');
 const supplierObj=(data.suppliers||[]).find(
-  s=>String(s.name||'').trim()===supplierName
+  s=>String(s.name||'').trim().toLocaleLowerCase('ar')===normalizedSupplierName
 );
 
 const x={
@@ -706,6 +734,12 @@ function renderAll(){
   document.getElementById('baleRows').innerHTML=data.bales.map(b=>`<tr><td><b>${b.nameAr||'-'}</b><div class="small">${b.nameEn||''}</div></td><td>${b.grade}</td><td>${b.weight||0}</td><td>${money(b.buyUsd)}</td><td>${money(baleJod(b))}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد بالات بعد.</td></tr>';
 document.getElementById('customerList').innerHTML=data.customers.map(c=>`<div class="item"><div class="top"><b>${c.name}</b><b>${money(c.debt)} د.أ</b></div><div class="small">${c.phone||'بدون هاتف'}</div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn secondary" onclick="addSale('${c.id}')">تسجيل مبيعة</button><button class="btn secondary" onclick="addPayment('${c.id}')">تسجيل دفعة</button><button class="btn secondary" onclick="statement('${c.id}')">كشف حساب</button></div></div>`).join('')||'<div class="muted">لا يوجد زبائن بعد.</div>';
   const suppliers=data.suppliers||[];
+  const supplierOptions=document.getElementById('supplierOptions');
+  supplierOptions.replaceChildren(...suppliers.map(supplier=>{
+    const option=document.createElement('option');
+    option.value=supplier.name||'';
+    return option;
+  }));
     document.getElementById('supplierList').innerHTML=
   suppliers.map(x=>`
     <div class="item">

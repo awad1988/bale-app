@@ -168,6 +168,7 @@ supplierPayments: (supplierPayments || []).map(x => ({
   supplierId: x.supplier_id,
   amount: rowNum(x.amount_jod),
   date: x.payment_date || null,
+  createdAt: x.created_at || null,
   notes: x.notes || ''
 }))
     });
