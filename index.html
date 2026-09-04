@@ -254,7 +254,14 @@ async function refresh(){
   }
 }
 
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));document.getElementById(b.dataset.target).classList.add('active')})
+function openSection(target){
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelector(`nav button[data-target="${target}"]`)?.classList.add('active');
+  document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));
+  document.getElementById(target)?.classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>openSection(b.dataset.target));
 function toggleShipmentForm(){document.getElementById('shipmentForm').classList.toggle('hidden')}
 function toggleBaleForm(){document.getElementById('baleForm').classList.toggle('hidden')}
 function toggleCustomerForm(){document.getElementById('customerForm').classList.toggle('hidden')}
@@ -765,14 +772,20 @@ function showAgentMessage(message, mode, action){
     button.className='btn wide';
     button.style.marginTop='12px';
     button.textContent='فتح كشف حساب الزبون';
-    button.onclick=()=>statement(action.payload.customerId);
+    button.onclick=()=>{
+      statement(action.payload.customerId);
+      openSection('customers');
+    };
     box.appendChild(button);
   }else if(action?.type==='view_supplier_statement'){
     const button=document.createElement('button');
     button.className='btn wide';
     button.style.marginTop='12px';
     button.textContent='فتح كشف حساب المورد';
-    button.onclick=()=>supplierStatement(action.payload.supplierId);
+    button.onclick=()=>{
+      supplierStatement(action.payload.supplierId);
+      openSection('suppliers');
+    };
     box.appendChild(button);
   }
   out.appendChild(box);
