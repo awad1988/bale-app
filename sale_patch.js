@@ -1,6 +1,19 @@
 (function(){
+  function normalizeArabic(value){
+    return String(value||'')
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064b-\u065f\u0670]/g,'')
+      .replace(/[أإآ]/g,'ا')
+      .replace(/ى/g,'ي')
+      .replace(/ة/g,'ه')
+      .replace(/ؤ/g,'و')
+      .replace(/ئ/g,'ي')
+      .replace(/\s+/g,' ');
+  }
+
   function normalizeStatus(value){
-    return String(value||'').trim().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه');
+    return normalizeArabic(value);
   }
 
   function availableBales(){
@@ -13,6 +26,15 @@
     return name+(details?' • '+details:'');
   }
 
+  function matchesQuery(b, query){
+    const q=normalizeArabic(query);
+    if(!q) return true;
+    const fields=[b.nameAr,b.nameEn,b.grade,b.weight].map(normalizeArabic).filter(Boolean);
+    if(fields.some(field=>field.includes(q)||q.includes(field))) return true;
+    const tokens=q.split(' ').filter(Boolean);
+    return fields.some(field=>tokens.every(token=>field.includes(token)));
+  }
+
   function chooseBale(){
     const all=availableBales();
     if(!all.length){
@@ -20,23 +42,20 @@
       return null;
     }
 
-    const query=prompt('اكتب جزءًا من اسم البالة المباعة، بالعربي أو الإنجليزي:');
+    const query=prompt('اكتب جزءًا من اسم البالة المباعة، بالعربي أو الإنجليزي.\nأو اترك الخانة فارغة لعرض البالات المتاحة:');
     if(query===null) return null;
-    const q=String(query).trim().toLowerCase();
-    const matches=all.filter(b=>{
-      const hay=[b.nameAr,b.nameEn,b.grade,b.weight].join(' ').toLowerCase();
-      return !q || hay.includes(q);
-    });
+
+    const matches=all.filter(b=>matchesQuery(b,query));
 
     if(!matches.length){
-      alert('لم أجد بالة متاحة بهذا الاسم.');
+      alert('لم أجد بالة متاحة بهذا الاسم. جرّب جزءًا أقصر من الاسم أو اترك الخانة فارغة لعرض كل البالات المتاحة.');
       return null;
     }
     if(matches.length===1) return matches[0];
 
     const shown=matches.slice(0,20);
     const menu=shown.map((b,i)=>`${i+1}) ${baleLabel(b)}`).join('\n');
-    const answer=Number(prompt('اختر رقم البالة الكاملة:\n\n'+menu+(matches.length>20?'\n\nاكتب اسمًا أدق لعرض نتائج أقل.':''))||0);
+    const answer=Number(prompt('اختر رقم البالة الكاملة:\n\n'+menu+(matches.length>20?'\n\nهناك نتائج أكثر؛ اكتب اسمًا أدق لعرض نتائج أقل.':''))||0);
     if(answer<1 || answer>shown.length) return null;
     return shown[answer-1];
   }
