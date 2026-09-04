@@ -226,6 +226,59 @@ app.post('/api/bales', async (req, res) => {`,
   'shipment delete route'
 );
 
+replaceOrFail(
+  "module.filename = originalPath;",
+`app.post('/api/reset-experimental-data', async (req, res) => {
+  const confirmation = String((req.body || {}).confirmation || '');
+  if (confirmation !== 'RESET-ALL-EXPERIMENTAL') {
+    return res.status(400).json({ error: 'تأكيد الحذف غير صحيح.' });
+  }
+
+  const deleted = [];
+  const optionalTables = new Set(['inventory', 'stock_movements']);
+  const tables = [
+    'stock_movements',
+    'inventory',
+    'sales',
+    'payments',
+    'supplier_payments',
+    'cash_movements',
+    'expenses',
+    'bales',
+    'shipments',
+    'customers',
+    'suppliers'
+  ];
+
+  try {
+    for (const table of tables) {
+      try {
+        await supabaseRequest(\`${table}?id=not.is.null\`, {
+          method: 'DELETE',
+          headers: { Prefer: 'return=minimal' }
+        });
+        deleted.push(table);
+      } catch (error) {
+        const msg = String(error.message || error);
+        if (optionalTables.has(table) && /(does not exist|not found|PGRST205|Could not find)/i.test(msg)) continue;
+        throw new Error(\`تعذر تنظيف جدول \${table}: \${msg}\`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      deleted,
+      message: 'تم حذف كل البيانات التشغيلية التجريبية. النظام جاهز للبدء من صفر.'
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+module.filename = originalPath;`,
+  'reset experimental data route'
+);
+
 module.filename = originalPath;
 module.paths = Module._nodeModulePaths(__dirname);
 module._compile(src, originalPath);
