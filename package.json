@@ -1,10 +1,10 @@
 {
   "name": "bale-agency-cloud",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node bootstrap.js"
+    "start": "node launcher.js"
   },
   "dependencies": {
     "express": "^4.21.2",
