@@ -22,7 +22,16 @@ fs.readFileSync = function(file, options){
 };
 
 Module.prototype._compile = function(content, filename){
-  if (String(filename || '').endsWith('/server.js') || String(filename || '').endsWith('\\server.js')) {
+  const fileName = String(filename || '');
+
+  if (fileName.endsWith('/bootstrap.js') || fileName.endsWith('\\bootstrap.js')) {
+    content = String(content).replace(
+      'await supabaseRequest(\\`${table}?id=not.is.null\\`, {',
+      'await supabaseRequest(\\`\\${table}?id=not.is.null\\`, {'
+    );
+  }
+
+  if (fileName.endsWith('/server.js') || fileName.endsWith('\\server.js')) {
     content = String(content)
       .replaceAll(".match(/[BALE_ID:([^]]+)]/)", ".match(/\\[BALE_ID:([^\\]]+)\\]/)")
       .replaceAll(".replace(/s*[BALE_ID:[^]]+]s*/g", ".replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g");
