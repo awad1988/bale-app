@@ -45,7 +45,7 @@
   </div>
   <div class="assistant">
     <h3 style="margin-top:0">المساعد الذكي داخل التطبيق</h3>
-    <div style="font-size:13px;opacity:.85">حالياً تجريبي. في النسخة السحابية سنربطه بذكاء اصطناعي فعلي ليقرأ الأوامر ويجهز الكشوف قبل الإرسال.</div>
+    <div style="font-size:13px;opacity:.85">يفهم أوامرك المحاسبية بالعربي، يعرض الكشوف والملخصات ويجهز العمليات. لا تُسجّل أي حركة مالية قبل تأكيدك.</div>
   </div>
 </section>
 
@@ -221,7 +221,7 @@
   </div>
   <div class="card" style="margin-top:12px">
     <h3>أمثلة</h3>
-    <div class="muted">«اعرض كشف حساب أحمد» • «سجل مبيعة 120 لمحمد» • «سجل مصروف ديزل 30» • «أعطني ملخص العمل»</div>
+    <div class="muted">«اعرض كشف حساب أحمد» • «سجل مبيعة 120 لمحمد» • «كم عندي أنوراك بالمخزون؟» • «رصيد الصندوق» • «ما صافي الربح؟»</div>
   </div>
   <div class="card" style="margin-top:12px"><h3>مبدأ الأمان</h3><div class="muted">أي دفعة أو مبيعة أو مصروف لن يُسجّل إلا بعد أن يعرضه الوكيل وتضغط أنت على تأكيد التنفيذ.</div></div>
 </section>
@@ -743,7 +743,13 @@ function showAgentMessage(message, mode, action){
   if(mode){
     const badge=document.createElement('div');
     badge.style.cssText='font-size:12px;opacity:.75;margin-top:8px';
-    badge.textContent=mode==='gemini' ? 'فهم ذكي عبر Gemini' : mode==='openai' ? 'فهم ذكي عبر OpenAI' : 'فهم عربي أساسي — بانتظار مفتاح الذكاء الاصطناعي';
+    badge.textContent=mode==='gemini'
+      ? 'فهم ذكي عبر Gemini'
+      : mode==='openai'
+        ? 'فهم ذكي عبر OpenAI'
+        : mode==='local-fallback'
+          ? 'فهم عربي محلي — الخدمة السحابية غير متاحة'
+          : 'فهم عربي محلي — يعمل بدون مفتاح';
     box.appendChild(badge);
   }
 
