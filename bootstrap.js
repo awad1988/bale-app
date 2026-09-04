@@ -62,19 +62,22 @@ replaceOrFail(
   let linkedSales = 0;
   let soldBaleCost = 0;
   let linkedSaleCount = 0;
-  let unlinkedSaleCount = 0;
+  let archivedSaleCount = 0;
+  let archivedSalesAmount = 0;
   const seenBales = new Set();
 
   for (const sale of snapshot.sales) {
     const match = String(sale.notes || '').match(/\[BALE_ID:([^\]]+)\]/);
     if (!match) {
-      unlinkedSaleCount += 1;
+      archivedSaleCount += 1;
+      archivedSalesAmount += rowNum(sale.total_jod);
       continue;
     }
     const baleId = String(match[1]);
     const bale = snapshot.bales.find(item => String(item.id) === baleId);
     if (!bale) {
-      unlinkedSaleCount += 1;
+      archivedSaleCount += 1;
+      archivedSalesAmount += rowNum(sale.total_jod);
       continue;
     }
     linkedSales += rowNum(sale.total_jod);
@@ -105,7 +108,8 @@ replaceOrFail(
     linkedSales,
     soldBaleCost,
     linkedSaleCount,
-    unlinkedSaleCount,
+    archivedSaleCount,
+    archivedSalesAmount,
     estimatedNet: linkedSales - soldBaleCost - expenses
   };
 }
@@ -119,18 +123,21 @@ replaceOrFail(
 `if (call.name === 'profit_summary') {
     const summary = businessSummary(snapshot);
     if (!summary.linkedSaleCount) {
+      const archive = summary.archivedSaleCount
+        ? \` يوجد أيضًا \${summary.archivedSaleCount} مبيعة قديمة محفوظة كأرشيف ولا تدخل في الربح الجديد.\`
+        : '';
       return {
         mode,
-        message: 'لا توجد مبيعات مرتبطة ببالات حتى الآن. سجّل المبيعة باختيار البالة الكاملة أولًا، وبعدها أحسب ربحها الحقيقي.',
+        message: \`لا توجد مبيعات جديدة مرتبطة ببالات حتى الآن. سجّل المبيعة باختيار البالة الكاملة أولًا، وبعدها أحسب ربحها الحقيقي.\${archive}\`,
         action: null
       };
     }
-    const legacy = summary.unlinkedSaleCount
-      ? \` يوجد \${summary.unlinkedSaleCount} مبيعة قديمة غير مرتبطة ببالة، لذلك لم أدخلها في ربح البالات الدقيق.\`
+    const archive = summary.archivedSaleCount
+      ? \` المبيعات القديمة محفوظة كأرشيف: \${summary.archivedSaleCount} حركة بإجمالي \${summary.archivedSalesAmount.toFixed(2)} د.أ، ولا تدخل في صافي الربح الجديد.\`
       : '';
     return {
       mode,
-      message: \`صافي ربح البالات المرتبطة: \${summary.estimatedNet.toFixed(2)} د.أ = مبيعات البالات \${summary.linkedSales.toFixed(2)} - تكلفة البالات المباعة \${summary.soldBaleCost.toFixed(2)} - المصاريف \${summary.expenses.toFixed(2)}.\${legacy}\`,
+      message: \`صافي ربح البالات الجديدة: \${summary.estimatedNet.toFixed(2)} د.أ = مبيعات البالات \${summary.linkedSales.toFixed(2)} - تكلفة البالات المباعة \${summary.soldBaleCost.toFixed(2)} - المصاريف \${summary.expenses.toFixed(2)}.\${archive}\`,
       action: null
     };
   }
