@@ -2,6 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const Module = require('module');
 
+// Ensure the full-bale sale UI patch is loaded directly in the page.
+// This avoids depending on the browser/service-worker update cycle on iPhone.
+try {
+  const indexPath = path.join(__dirname, 'index.html');
+  let html = fs.readFileSync(indexPath, 'utf8');
+  if (!html.includes('/sale_patch.js')) {
+    html = html.replace('</body>', '<script src="/sale_patch.js?v=4"></script></body>');
+    fs.writeFileSync(indexPath, html, 'utf8');
+  }
+} catch (error) {
+  console.warn('Could not inject sale_patch.js into index.html:', error.message);
+}
+
 const originalPath = path.join(__dirname, 'server.js');
 let src = fs.readFileSync(originalPath, 'utf8');
 
@@ -54,7 +67,7 @@ replaceOrFail(
   const seenBales = new Set();
 
   for (const sale of snapshot.sales) {
-    const match = String(sale.notes || '').match(/\\[BALE_ID:([^\\]]+)\\]/);
+    const match = String(sale.notes || '').match(/\[BALE_ID:([^\]]+)\]/);
     if (!match) {
       unlinkedSaleCount += 1;
       continue;
@@ -107,6 +120,13 @@ replaceOrFail(
   /if \(call\.name === 'profit_summary'\) \{[\s\S]*?\n  \}\n  if \(call\.name === 'record_customer_payment'\)/,
 `if (call.name === 'profit_summary') {
     const summary = businessSummary(snapshot);
+    if (!summary.linkedSaleCount) {
+      return {
+        mode,
+        message: 'لا توجد مبيعات مرتبطة ببالات حتى الآن. سجّل المبيعة باختيار البالة الكاملة أولًا، وبعدها أحسب ربحها الحقيقي.',
+        action: null
+      };
+    }
     const legacy = summary.unlinkedSaleCount
       ? \` يوجد \${summary.unlinkedSaleCount} مبيعة قديمة غير مرتبطة ببالة، لذلك لم أدخلها في ربح البالات الدقيق.\`
       : '';
@@ -128,8 +148,8 @@ replaceOrFail(
   customerId: x.customer_id,
   amount: rowNum(x.total_jod),
   date: x.sale_date || x.created_at || null,
-  notes: String(x.notes || '').replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g, ' ').trim(),
-  baleId: (String(x.notes || '').match(/\\[BALE_ID:([^\\]]+)\\]/) || [])[1] || null
+  notes: String(x.notes || '').replace(/\s*\[BALE_ID:[^\]]+\]\s*/g, ' ').trim(),
+  baleId: (String(x.notes || '').match(/\[BALE_ID:([^\]]+)\]/) || [])[1] || null
 })),`
   ,
   'sales api mapping'
@@ -151,7 +171,7 @@ replaceOrFail(
     if (!bale) throw new Error('البالة غير موجودة في المخزون.');
     if (normalizeArabic(bale.status).includes('مباع')) throw new Error('هذه البالة مباعة مسبقًا.');
 
-    const cleanNotes = String(x.notes || '').replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g, ' ').trim();
+    const cleanNotes = String(x.notes || '').replace(/\s*\[BALE_ID:[^\]]+\]\s*/g, ' ').trim();
     const storedNotes = \`[BALE_ID:\${baleId}]\${cleanNotes ? ' ' + cleanNotes : ''}\`;
 
     await supabaseRequest('rpc/record_sale', {
