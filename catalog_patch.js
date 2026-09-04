@@ -50,32 +50,24 @@
 
     const select = document.createElement('select');
     select.id = 'oldBaleCatalogSelect';
-    select.innerHTML = '<option value="">اختر صنفًا من القائمة القديمة</option>' +
+    select.innerHTML = '<option value="">اختر الصنف العربي</option>' +
       oldCatalog.map((item,index) => `<option value="${index}">${item.ar}</option>`).join('');
-    select.style.marginBottom = '8px';
 
     nameAr.parentNode.insertBefore(select, nameAr);
-    nameAr.placeholder = 'أو اكتب صنفًا جديدًا';
+    nameAr.type = 'hidden';
     nameAr.removeAttribute('list');
-    nameAr.setAttribute('autocomplete','off');
+    nameAr.removeAttribute('placeholder');
 
     select.addEventListener('change', ()=>{
-      if(select.value==='') return;
+      if(select.value===''){
+        nameAr.value='';
+        nameEn.value='';
+        return;
+      }
       const item = oldCatalog[Number(select.value)];
       if(!item) return;
       nameAr.value = item.ar;
       nameEn.value = item.en || '';
-    });
-
-    nameAr.addEventListener('input', ()=>{
-      const item = oldCatalog.find(x => x.ar === nameAr.value.trim());
-      if(item){
-        nameEn.value = item.en || '';
-        const index = oldCatalog.indexOf(item);
-        select.value = String(index);
-      }else{
-        select.value = '';
-      }
     });
 
     const form = document.getElementById('baleForm');
@@ -84,8 +76,8 @@
       hint.id = 'catalogHint';
       hint.className = 'small';
       hint.style.marginTop = '6px';
-      hint.textContent = 'اختر الصنف القديم ليتم تعبئة الاسم العربي والإنجليزي تلقائيًا. يمكن تعديل الاسم الإنجليزي يدويًا إذا كان اسم المورد مختلفًا.';
-      nameAr.insertAdjacentElement('afterend', hint);
+      hint.textContent = 'اختر الصنف العربي من القائمة وسيتم تعبئة الاسم الإنجليزي تلقائيًا. يمكن تعديل الاسم الإنجليزي يدويًا عند الحاجة.';
+      select.insertAdjacentElement('afterend', hint);
     }
   }
 
