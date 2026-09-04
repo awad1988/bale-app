@@ -1,6 +1,8 @@
 const fs = require('fs');
+const Module = require('module');
 
 const originalReadFileSync = fs.readFileSync.bind(fs);
+const originalCompile = Module.prototype._compile;
 
 fs.readFileSync = function(file, options){
   const result = originalReadFileSync(file, options);
@@ -17,6 +19,15 @@ fs.readFileSync = function(file, options){
   }
 
   return result;
+};
+
+Module.prototype._compile = function(content, filename){
+  if (String(filename || '').endsWith('/server.js') || String(filename || '').endsWith('\\server.js')) {
+    content = String(content)
+      .replaceAll(".match(/[BALE_ID:([^]]+)]/)", ".match(/\\[BALE_ID:([^\\]]+)\\]/)")
+      .replaceAll(".replace(/s*[BALE_ID:[^]]+]s*/g", ".replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g");
+  }
+  return originalCompile.call(this, content, filename);
 };
 
 require('./bootstrap.js');
