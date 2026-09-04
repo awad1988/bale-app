@@ -83,7 +83,7 @@ function findInventoryItems(items, query) {
   });
 }
 
-async function supabaseRequest(endpoint, options = {}) {
+async function supabaseRequest(endpoint, options = {}, attempt = 0) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     throw new Error('Supabase environment variables are missing');
   }
@@ -106,6 +106,14 @@ async function supabaseRequest(endpoint, options = {}) {
       const json = JSON.parse(text);
       message = json.message || json.error || text;
     } catch (_) {}
+
+    // Supabase can briefly reject a request when clocks between cloud
+    // services are still synchronizing. Retry transparently instead of
+    // exposing the transient JWT error to the user.
+    if (/JWT issued at future/i.test(message) && attempt < 2) {
+      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      return supabaseRequest(endpoint, options, attempt + 1);
+    }
 
     throw new Error(message || `Supabase error ${response.status}`);
   }
