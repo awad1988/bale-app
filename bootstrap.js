@@ -66,7 +66,7 @@ replaceOrFail(
   const seenBales = new Set();
 
   for (const sale of snapshot.sales) {
-    const match = String(sale.notes || '').match(/\\[BALE_ID:([^\\]]+)\\]/);
+    const match = String(sale.notes || '').match(/\[BALE_ID:([^\]]+)\]/);
     if (!match) {
       unlinkedSaleCount += 1;
       continue;
@@ -145,8 +145,8 @@ replaceOrFail(
   customerId: x.customer_id,
   amount: rowNum(x.total_jod),
   date: x.sale_date || x.created_at || null,
-  notes: String(x.notes || '').replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g, ' ').trim(),
-  baleId: (String(x.notes || '').match(/\\[BALE_ID:([^\\]]+)\\]/) || [])[1] || null
+  notes: String(x.notes || '').replace(/\s*\[BALE_ID:[^\]]+\]\s*/g, ' ').trim(),
+  baleId: (String(x.notes || '').match(/\[BALE_ID:([^\]]+)\]/) || [])[1] || null
 })),`,
   'sales api mapping'
 );
@@ -167,7 +167,7 @@ replaceOrFail(
     if (!bale) throw new Error('البالة غير موجودة في المخزون.');
     if (normalizeArabic(bale.status).includes('مباع')) throw new Error('هذه البالة مباعة مسبقًا.');
 
-    const cleanNotes = String(x.notes || '').replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g, ' ').trim();
+    const cleanNotes = String(x.notes || '').replace(/\s*\[BALE_ID:[^\]]+\]\s*/g, ' ').trim();
     const storedNotes = \`[BALE_ID:\${baleId}]\${cleanNotes ? ' ' + cleanNotes : ''}\`;
 
     await supabaseRequest('rpc/record_sale', {
@@ -193,6 +193,30 @@ replaceOrFail(
 });
 app.post('/api/expenses'`,
   'sales route'
+);
+
+replaceOrFail(
+  "app.post('/api/bales', async (req, res) => {",
+`app.delete('/api/shipments/:id', async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  try {
+    if (!id) throw new Error('معرّف الشحنة غير صالح.');
+    await supabaseRequest(\`bales?shipment_id=eq.\${encodeURIComponent(id)}\`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' }
+    });
+    await supabaseRequest(\`shipments?id=eq.\${encodeURIComponent(id)}\`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' }
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/bales', async (req, res) => {`,
+  'shipment delete route'
 );
 
 module.filename = originalPath;
