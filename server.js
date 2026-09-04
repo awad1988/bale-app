@@ -36,9 +36,11 @@ function normalizeArabic(value) {
 function parseArabicNumber(value) {
   const converted = String(value || '')
     .replace(/[٠-٩]/g, digit => '٠١٢٣٤٥٦٧٨٩'.indexOf(digit))
-    .replace(/[٬,]/g, '');
-  const match = converted.match(/\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : 0;
+    .replace(/٬/g, '')
+    .replace(/٫/g, '.')
+    .replace(/,/g, '');
+  const match = converted.match(/[+-]?\s*\d+(?:\.\d+)?/);
+  return match ? Number(match[0].replace(/\s+/g, '')) : 0;
 }
 
 function findNamed(items, name) {
@@ -47,6 +49,38 @@ function findNamed(items, name) {
   return items.find(item => normalizeArabic(item.name) === wanted) ||
     items.find(item => normalizeArabic(item.name).includes(wanted) || wanted.includes(normalizeArabic(item.name))) ||
     null;
+}
+
+function findMentioned(items, prompt) {
+  const text = normalizeArabic(prompt);
+  return [...items]
+    .filter(item => normalizeArabic(item.name))
+    .sort((a, b) => normalizeArabic(b.name).length - normalizeArabic(a.name).length)
+    .find(item => text.includes(normalizeArabic(item.name))) || null;
+}
+
+function inventoryTokens(value) {
+  const ignored = new Set([
+    'كم', 'عندي', 'لدينا', 'في', 'من', 'المخزون', 'مخزون', 'عدد', 'صنف', 'الصنف',
+    'باله', 'بالات', 'اعرض', 'اظهر', 'ابحث', 'عن', 'حاله', 'وضع', 'شو', 'هو', 'هي'
+  ]);
+  return normalizeArabic(value).split(' ').filter(token => token.length > 1 && !ignored.has(token));
+}
+
+function findInventoryItems(items, query) {
+  const wanted = normalizeArabic(query);
+  const wantedTokens = inventoryTokens(query);
+
+  return items.filter(item => {
+    const names = [item.name_ar, item.name_en].map(normalizeArabic).filter(Boolean);
+    if (names.some(name => wanted.includes(name) || name.includes(wanted))) return true;
+    if (!wantedTokens.length) return false;
+
+    return names.some(name => {
+      const matched = wantedTokens.filter(token => name.includes(token));
+      return matched.length >= Math.min(2, wantedTokens.length);
+    });
+  });
 }
 
 async function supabaseRequest(endpoint, options = {}) {
@@ -86,15 +120,16 @@ async function supabaseRequest(endpoint, options = {}) {
 }
 
 async function getAgentSnapshot() {
-  const [customers, suppliers, payments, sales, expenses, shipments, bales, supplierPayments] = await Promise.all([
+  const [customers, suppliers, payments, sales, expenses, shipments, bales, supplierPayments, cashMovements] = await Promise.all([
     supabaseRequest('customers?select=id,name,debt'),
     supabaseRequest('suppliers?select=id,name,balance'),
-    supabaseRequest('payments?select=customer_id,amount'),
-    supabaseRequest('sales?select=customer_id,total_jod'),
-    supabaseRequest('expenses?select=amount'),
-    supabaseRequest('shipments?select=id,supplier_id,supplier'),
-    supabaseRequest('bales?select=id,shipment_id,buy_usd'),
-    supabaseRequest('supplier_payments?select=supplier_id,amount_jod')
+    supabaseRequest('payments?select=customer_id,amount,paid_at'),
+    supabaseRequest('sales?select=customer_id,total_jod,sale_date,created_at'),
+    supabaseRequest('expenses?select=amount,category,expense_date'),
+    supabaseRequest('shipments?select=id,supplier_id,supplier,container_name,fx,customs,clearance,other_cost,purchase_date,arrival_date,created_at'),
+    supabaseRequest('bales?select=id,shipment_id,name_ar,name_en,grade,weight,buy_usd,status'),
+    supabaseRequest('supplier_payments?select=supplier_id,amount_jod,payment_date'),
+    supabaseRequest('cash_movements?select=movement_type,amount,movement_date,notes')
   ]);
 
   return {
@@ -105,38 +140,99 @@ async function getAgentSnapshot() {
     expenses: expenses || [],
     shipments: shipments || [],
     bales: bales || [],
-    supplierPayments: supplierPayments || []
+    supplierPayments: supplierPayments || [],
+    cashMovements: cashMovements || []
   };
 }
 
 function businessSummary(snapshot) {
+  const shipmentById = new Map(snapshot.shipments.map(item => [String(item.id), item]));
+  const purchases = snapshot.bales.reduce((sum, item) => {
+    const shipment = shipmentById.get(String(item.shipment_id));
+    return sum + (rowNum(item.buy_usd) * rowNum(shipment?.fx));
+  }, 0);
+  const landedCosts = snapshot.shipments.reduce(
+    (sum, item) => sum + rowNum(item.customs) + rowNum(item.clearance) + rowNum(item.other_cost),
+    0
+  );
+  const sales = snapshot.sales.reduce((sum, item) => sum + rowNum(item.total_jod), 0);
+  const customerPayments = snapshot.payments.reduce((sum, item) => sum + rowNum(item.amount), 0);
+  const expenses = snapshot.expenses.reduce((sum, item) => sum + rowNum(item.amount), 0);
+  const supplierPayments = snapshot.supplierPayments.reduce((sum, item) => sum + rowNum(item.amount_jod), 0);
+  const manualCashIn = snapshot.cashMovements
+    .filter(item => item.movement_type === 'in')
+    .reduce((sum, item) => sum + rowNum(item.amount), 0);
+  const manualCashOut = snapshot.cashMovements
+    .filter(item => item.movement_type === 'out')
+    .reduce((sum, item) => sum + rowNum(item.amount), 0);
+  const cashIn = customerPayments + manualCashIn;
+  const cashOut = expenses + manualCashOut;
+
   return {
     customers: snapshot.customers.length,
     suppliers: snapshot.suppliers.length,
     bales: snapshot.bales.length,
+    totalWeight: snapshot.bales.reduce((sum, item) => sum + rowNum(item.weight), 0),
     customerDebt: snapshot.customers.reduce((sum, item) => sum + rowNum(item.debt), 0),
     supplierDebt: snapshot.suppliers.reduce((sum, item) => sum + rowNum(item.balance), 0),
-    sales: snapshot.sales.reduce((sum, item) => sum + rowNum(item.total_jod), 0),
-    customerPayments: snapshot.payments.reduce((sum, item) => sum + rowNum(item.amount), 0),
-    expenses: snapshot.expenses.reduce((sum, item) => sum + rowNum(item.amount), 0)
+    sales,
+    purchases,
+    landedCosts,
+    inventoryCost: purchases + landedCosts,
+    customerPayments,
+    supplierPayments,
+    expenses,
+    cashIn,
+    cashOut,
+    cashBalance: cashIn - cashOut,
+    estimatedNet: sales - purchases - landedCosts - expenses
   };
 }
 
 function localAgentCommand(prompt, snapshot) {
   const text = normalizeArabic(prompt);
   const amount = parseArabicNumber(prompt);
-  const customer = snapshot.customers.find(item => text.includes(normalizeArabic(item.name)));
-  const supplier = snapshot.suppliers.find(item => text.includes(normalizeArabic(item.name)));
+  const customer = findMentioned(snapshot.customers, prompt);
+  const supplier = findMentioned(snapshot.suppliers, prompt);
+  const asksTotal = ['اجمالي', 'مجموع', 'ملخص', 'كم'].some(word => text.includes(word));
   const expenseCategory = String(prompt)
     .replace(/.*(?:مصروف|صرف)\s*/i, '')
-    .replace(/[٠-٩0-9.,٬]+.*/, '')
+    .replace(/[٠-٩0-9.,٬٫+-]+.*/, '')
     .trim() || 'عام';
 
+  if (text.includes('ربح') || text.includes('ارباح')) {
+    return { name: 'profit_summary', arguments: {} };
+  }
+  if (text.includes('صندوق') || text.includes('كاش') || text.includes('نقد')) {
+    return { name: 'cash_summary', arguments: {} };
+  }
+  if ((text.includes('مبيعات') || text.includes('بعت')) && asksTotal) {
+    return { name: 'sales_summary', arguments: {} };
+  }
+  if ((text.includes('مشتريات') || text.includes('اشتريت') || text.includes('تكلفه البضاعه')) && asksTotal) {
+    return { name: 'purchases_summary', arguments: {} };
+  }
+  if ((text.includes('مصاريف') || text.includes('صرفنا')) && asksTotal && !(amount > 0)) {
+    return { name: 'expense_summary', arguments: {} };
+  }
+  if (text.includes('مخزون') || text.includes('بالات') || text.includes('باله')) {
+    const matches = findInventoryItems(snapshot.bales, prompt);
+    if (matches.length && inventoryTokens(prompt).length) {
+      return { name: 'inventory_search', arguments: { item_name: prompt } };
+    }
+    return { name: 'inventory_summary', arguments: {} };
+  }
   if (text.includes('كشف') && text.includes('حساب') && text.includes('مورد')) {
     return { name: 'supplier_statement', arguments: { supplier_name: supplier?.name || '' } };
   }
   if (text.includes('كشف') && text.includes('حساب')) {
     return { name: 'customer_statement', arguments: { customer_name: customer?.name || '' } };
+  }
+  if (supplier && (text.includes('رصيد') || text.includes('دين') || text.includes('حساب') || text.includes('علينا'))) {
+    return { name: 'supplier_statement', arguments: { supplier_name: supplier.name } };
+  }
+  if (customer && (text.includes('رصيد') || text.includes('دين') || text.includes('حساب') || text.includes('عليه'))) {
+    return { name: 'customer_statement', arguments: { customer_name: customer.name } };
   }
   if ((text.includes('دفعه') || text.includes('دفعت') || text.includes('قبض')) && text.includes('مورد')) {
     return { name: 'record_supplier_payment', arguments: { supplier_name: supplier?.name || '', amount, notes: '' } };
@@ -150,7 +246,7 @@ function localAgentCommand(prompt, snapshot) {
   if (text.includes('مصروف') || text.includes('صرف')) {
     return { name: 'record_expense', arguments: { category: expenseCategory, amount, notes: '' } };
   }
-  if (text.includes('ملخص') || text.includes('الوضع') || text.includes('اجمالي')) {
+  if (text.includes('ملخص') || text.includes('الوضع') || text.includes('تقرير')) {
     return { name: 'business_summary', arguments: {} };
   }
   return {
@@ -171,6 +267,41 @@ function agentTools() {
       type: 'function', name: 'supplier_statement', strict: true,
       description: 'عرض رصيد أو كشف حساب مورد موجود.',
       parameters: { type: 'object', properties: { supplier_name: { type: 'string' } }, required: ['supplier_name'], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'inventory_summary', strict: true,
+      description: 'عرض عدد البالات وملخص المخزون وتكلفته.',
+      parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'inventory_search', strict: true,
+      description: 'البحث عن صنف أو اسم بالة بالعربي أو الإنجليزي داخل المخزون.',
+      parameters: { type: 'object', properties: { item_name: { type: 'string' } }, required: ['item_name'], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'sales_summary', strict: true,
+      description: 'عرض إجمالي المبيعات المسجلة.',
+      parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'purchases_summary', strict: true,
+      description: 'عرض إجمالي مشتريات البالات وتكلفة الوصول.',
+      parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'expense_summary', strict: true,
+      description: 'عرض إجمالي المصاريف المسجلة.',
+      parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'cash_summary', strict: true,
+      description: 'عرض إجمالي الداخل والخارج ورصيد الصندوق.',
+      parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
+    },
+    {
+      type: 'function', name: 'profit_summary', strict: true,
+      description: 'عرض صافي تقريبي من الأرقام المسجلة مع توضيح طريقة الحساب.',
+      parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
     },
     {
       type: 'function', name: 'record_customer_payment', strict: true,
@@ -224,7 +355,8 @@ function geminiAgentTools() {
 async function callGeminiAgent(prompt, snapshot) {
   const names = {
     customers: snapshot.customers.map(item => item.name),
-    suppliers: snapshot.suppliers.map(item => item.name)
+    suppliers: snapshot.suppliers.map(item => item.name),
+    inventory: [...new Set(snapshot.bales.flatMap(item => [item.name_ar, item.name_en]).filter(Boolean))].slice(0, 300)
   };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
@@ -270,7 +402,8 @@ async function callGeminiAgent(prompt, snapshot) {
 async function callOpenAIAgent(prompt, snapshot) {
   const names = {
     customers: snapshot.customers.map(item => item.name),
-    suppliers: snapshot.suppliers.map(item => item.name)
+    suppliers: snapshot.suppliers.map(item => item.name),
+    inventory: [...new Set(snapshot.bales.flatMap(item => [item.name_ar, item.name_en]).filter(Boolean))].slice(0, 300)
   };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
@@ -336,6 +469,64 @@ function buildAgentResult(call, snapshot, mode) {
     const item = supplier();
     return { mode, message: `رصيد المورد ${item.name}: ${rowNum(item.balance).toFixed(2)} د.أ`, action: { type: 'view_supplier_statement', requiresConfirmation: false, payload: { supplierId: item.id } } };
   }
+  if (call.name === 'inventory_summary') {
+    const summary = businessSummary(snapshot);
+    const statusCounts = snapshot.bales.reduce((counts, item) => {
+      const status = String(item.status || 'غير محدد');
+      counts[status] = (counts[status] || 0) + 1;
+      return counts;
+    }, {});
+    const statuses = Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`).join('، ');
+    return {
+      mode,
+      message: `المخزون المسجل: ${summary.bales} بالة بوزن ${summary.totalWeight.toFixed(2)} كغم. تكلفة البضاعة مع مصاريف الوصول: ${summary.inventoryCost.toFixed(2)} د.أ${statuses ? `. الحالات: ${statuses}.` : '.'}`,
+      action: null
+    };
+  }
+  if (call.name === 'inventory_search') {
+    const matches = findInventoryItems(snapshot.bales, args.item_name);
+    if (!matches.length) {
+      return { mode, message: `لم أجد صنفًا مطابقًا لـ «${args.item_name || ''}» في المخزون.`, action: null };
+    }
+
+    const grouped = new Map();
+    for (const item of matches) {
+      const name = item.name_ar || item.name_en || 'بدون اسم';
+      const key = [name, item.grade || '', rowNum(item.weight), item.status || 'غير محدد'].join('|');
+      const current = grouped.get(key) || { name, grade: item.grade || '-', weight: rowNum(item.weight), status: item.status || 'غير محدد', count: 0 };
+      current.count += 1;
+      grouped.set(key, current);
+    }
+
+    const groups = [...grouped.values()];
+    const details = groups.slice(0, 8).map(item => `${item.name} — ${item.grade} — ${item.weight} كغم — ${item.status}: ${item.count}`).join(' | ');
+    const more = groups.length > 8 ? ` | وهناك ${groups.length - 8} أصناف مطابقة أخرى.` : '';
+    return { mode, message: `وجدت ${matches.length} بالة مطابقة. ${details}${more}`, action: null };
+  }
+  if (call.name === 'sales_summary') {
+    const summary = businessSummary(snapshot);
+    return { mode, message: `إجمالي المبيعات المسجلة: ${summary.sales.toFixed(2)} د.أ. دفعات الزبائن المستلمة: ${summary.customerPayments.toFixed(2)} د.أ.`, action: null };
+  }
+  if (call.name === 'purchases_summary') {
+    const summary = businessSummary(snapshot);
+    return { mode, message: `إجمالي شراء البالات: ${summary.purchases.toFixed(2)} د.أ، ومصاريف الوصول: ${summary.landedCosts.toFixed(2)} د.أ. التكلفة الإجمالية الواصلة: ${summary.inventoryCost.toFixed(2)} د.أ.`, action: null };
+  }
+  if (call.name === 'expense_summary') {
+    const summary = businessSummary(snapshot);
+    return { mode, message: `إجمالي المصاريف المسجلة: ${summary.expenses.toFixed(2)} د.أ.`, action: null };
+  }
+  if (call.name === 'cash_summary') {
+    const summary = businessSummary(snapshot);
+    return { mode, message: `الصندوق: الداخل ${summary.cashIn.toFixed(2)} د.أ، الخارج ${summary.cashOut.toFixed(2)} د.أ، والرصيد ${summary.cashBalance.toFixed(2)} د.أ.`, action: null };
+  }
+  if (call.name === 'profit_summary') {
+    const summary = businessSummary(snapshot);
+    return {
+      mode,
+      message: `الصافي التقريبي للمسجل: ${summary.estimatedNet.toFixed(2)} د.أ = المبيعات ${summary.sales.toFixed(2)} - شراء البالات ${summary.purchases.toFixed(2)} - مصاريف الوصول ${summary.landedCosts.toFixed(2)} - المصاريف ${summary.expenses.toFixed(2)}. هذا تقدير لأن النظام لا يربط كل مبيعة حتى الآن بتكلفة البالة المباعة.`,
+      action: null
+    };
+  }
   if (call.name === 'record_customer_payment') {
     const item = customer(); requireAmount();
     return { mode, message: `تأكيد تسجيل دفعة ${amount.toFixed(2)} د.أ من الزبون ${item.name}؟`, action: { type: call.name, requiresConfirmation: true, payload: { customerId: item.id, customerName: item.name, amount, notes: args.notes || '' } } };
@@ -356,7 +547,7 @@ function buildAgentResult(call, snapshot, mode) {
     const summary = businessSummary(snapshot);
     return {
       mode,
-      message: `الملخص: ${summary.customers} زبائن، ${summary.suppliers} موردين، ${summary.bales} بالات. ديون الزبائن ${summary.customerDebt.toFixed(2)} د.أ، رصيد الموردين ${summary.supplierDebt.toFixed(2)} د.أ، والمصاريف ${summary.expenses.toFixed(2)} د.أ.`,
+      message: `الملخص: ${summary.customers} زبائن، ${summary.suppliers} موردين، ${summary.bales} بالات. المبيعات ${summary.sales.toFixed(2)} د.أ، ديون الزبائن ${summary.customerDebt.toFixed(2)} د.أ، رصيد الموردين ${summary.supplierDebt.toFixed(2)} د.أ، المصاريف ${summary.expenses.toFixed(2)} د.أ، ورصيد الصندوق ${summary.cashBalance.toFixed(2)} د.أ.`,
       action: null
     };
   }
@@ -700,15 +891,28 @@ app.post('/api/agent', async (req, res) => {
     const snapshot = await getAgentSnapshot();
     let mode = 'local';
     let call;
+    const providerFailures = [];
 
     if (GEMINI_API_KEY) {
-      call = await callGeminiAgent(prompt, snapshot);
-      mode = 'gemini';
-    } else if (OPENAI_API_KEY) {
-      call = await callOpenAIAgent(prompt, snapshot);
-      mode = 'openai';
-    } else {
+      try {
+        call = await callGeminiAgent(prompt, snapshot);
+        mode = 'gemini';
+      } catch (error) {
+        providerFailures.push(`Gemini: ${error.message}`);
+      }
+    }
+    if (!call && OPENAI_API_KEY) {
+      try {
+        call = await callOpenAIAgent(prompt, snapshot);
+        mode = 'openai';
+      } catch (error) {
+        providerFailures.push(`OpenAI: ${error.message}`);
+      }
+    }
+    if (!call) {
       call = localAgentCommand(prompt, snapshot);
+      mode = providerFailures.length ? 'local-fallback' : 'local';
+      if (providerFailures.length) console.warn('Cloud agent unavailable; using local Arabic agent.', providerFailures.join(' | '));
     }
 
     res.json(buildAgentResult(call, snapshot, mode));
