@@ -45,24 +45,26 @@
 
   function installCatalog(){
     const nameAr = document.getElementById('nameAr');
-    if(!nameAr) return;
+    if(!nameAr || document.getElementById('oldBaleCatalogSelect')) return;
 
-    let list = document.getElementById('oldBaleCatalog');
-    if(!list){
-      list = document.createElement('datalist');
-      list.id = 'oldBaleCatalog';
-      document.body.appendChild(list);
-    }
+    const select = document.createElement('select');
+    select.id = 'oldBaleCatalogSelect';
+    select.innerHTML = '<option value="">اختر صنفًا من القائمة القديمة</option>' +
+      oldCatalog.map(name => `<option value="${name}">${name}</option>`).join('');
+    select.style.marginBottom = '8px';
 
-    list.replaceChildren(...oldCatalog.map(name => {
-      const option = document.createElement('option');
-      option.value = name;
-      return option;
-    }));
-
-    nameAr.setAttribute('list','oldBaleCatalog');
+    nameAr.parentNode.insertBefore(select, nameAr);
+    nameAr.placeholder = 'أو اكتب صنفًا جديدًا';
+    nameAr.removeAttribute('list');
     nameAr.setAttribute('autocomplete','off');
-    nameAr.placeholder = 'اختر من الأصناف القديمة أو اكتب صنفًا جديدًا';
+
+    select.addEventListener('change', ()=>{
+      if(select.value) nameAr.value = select.value;
+    });
+
+    nameAr.addEventListener('input', ()=>{
+      if(nameAr.value !== select.value) select.value = '';
+    });
 
     const form = document.getElementById('baleForm');
     if(form && !document.getElementById('catalogHint')){
@@ -70,7 +72,7 @@
       hint.id = 'catalogHint';
       hint.className = 'small';
       hint.style.marginTop = '6px';
-      hint.textContent = 'قائمة الأصناف القديمة محفوظة للاختيار، بدون إضافة كميات أو أسعار للمخزون.';
+      hint.textContent = 'اختر من القائمة القديمة أو اكتب صنفًا جديدًا. لا تُضاف كميات أو أسعار تلقائيًا.';
       nameAr.insertAdjacentElement('afterend', hint);
     }
   }
