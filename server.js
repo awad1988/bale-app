@@ -562,23 +562,12 @@ function buildAgentResult(call, snapshot, mode) {
   return { mode, message: args.message || 'أحتاج تفاصيل أكثر لتنفيذ الأمر.', action: null };
 }
 
-app.get('/api/health', async (_req, res) => {
-  try {
-    await supabaseRequest('shipments?select=id&limit=1');
-
-    res.json({
-      ok: true,
-      database: true,
-      mode: 'supabase-https',
-      time: new Date().toISOString()
-    });
-  } catch (e) {
-    res.status(500).json({
-      ok: false,
-      database: false,
-      error: e.message
-    });
-  }
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'bale-agency-cloud',
+    time: new Date().toISOString()
+  });
 });
 
 app.get('/api/data', async (_req, res) => {
