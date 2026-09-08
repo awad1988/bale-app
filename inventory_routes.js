@@ -22,90 +22,56 @@ module.exports = function registerInventoryRoutes(ctx) {
       .replace(/\s+/g, ' ');
   }
 
-  function productKey(row, season) {
+  function productKey(row) {
     const name = normalizeName(row.name_en) || normalizeArabic(row.name_ar);
     return [
       name,
       normalizeGrade(row.grade),
-      Number(row.weight_kg || row.weight || 0),
-      normalizeArabic(season || 'شتوي')
+      Number(row.weight_kg || 0)
     ].join('|');
   }
 
-  function isMissingTable(error) {
-    return /(does not exist|not found|PGRST205|Could not find)/i.test(
-      String(error && error.message || error || '')
-    );
-  }
-
-  async function getMovements() {
-    try {
-      return await supabaseRequest(
-        'stock_movements?select=id,bale_id,branch_id,qty,date,notes&order=id.asc'
-      ) || [];
-    } catch (error) {
-      if (isMissingTable(error)) {
-        throw new Error('جدول حركات المخزون غير موجود في قاعدة البيانات.');
-      }
-      throw error;
-    }
+  async function getSnapshot() {
+    const result = await Promise.all([
+      supabaseRequest(
+        'products?select=id,name_ar,name_en,grade,weight_kg,purchase_price_usd,invoice_quantity,total_weight_kg,invoice_total_usd&order=id.asc'
+      ),
+      supabaseRequest(
+        'inventory?select=branch_id,product_id,quantity&order=branch_id.asc'
+      ),
+      supabaseRequest(
+        'customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18%3A35%3A00Z&order=created_at.asc'
+      )
+    ]);
+    return {
+      products: result[0] || [],
+      inventory: result[1] || [],
+      customers: result[2] || []
+    };
   }
 
   app.get('/api/v2/data', async function (_req, res) {
     try {
-      const result = await Promise.all([
-        supabaseRequest(
-          'bales?select=id,shipment_id,name_ar,name_en,grade,weight,buy_usd,status,created_at&order=created_at.asc'
-        ),
-        getMovements(),
-        supabaseRequest(
-          'customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18%3A35%3A00Z&order=created_at.asc'
-        )
-      ]);
-      const bales = result[0] || [];
-      const movements = result[1] || [];
-      const customers = result[2] || [];
-
-      const products = bales.map(function (item) {
-        return {
-          id: item.id,
-          name_ar: item.name_ar || '',
-          name_en: item.name_en || '',
-          grade: item.grade || '',
-          weight_kg: rowNum(item.weight),
-          purchase_price_usd: rowNum(item.buy_usd),
-          status: item.status || '',
-          shipment_id: item.shipment_id || null
-        };
-      });
-
-      const byProductBranch = new Map();
-      for (const movement of movements) {
-        const key = String(movement.bale_id) + '|' + String(movement.branch_id);
-        const existing = byProductBranch.get(key) || {
-          product_id: movement.bale_id,
-          branch_id: Number(movement.branch_id),
-          quantity: 0
-        };
-        existing.quantity += rowNum(movement.qty);
-        byProductBranch.set(key, existing);
-      }
-
-      const productById = new Map(products.map(function (item) {
+      const snapshot = await getSnapshot();
+      const productById = new Map(snapshot.products.map(function (item) {
         return [String(item.id), item];
       }));
-      const inventory = Array.from(byProductBranch.values())
-        .filter(function (item) {
-          return item.quantity !== 0 && productById.has(String(item.product_id));
-        })
-        .map(function (item) {
-          return Object.assign({}, productById.get(String(item.product_id)), item);
-        });
+      const inventory = snapshot.inventory.map(function (item) {
+        return Object.assign(
+          {},
+          productById.get(String(item.product_id)) || {},
+          {
+            branch_id: Number(item.branch_id),
+            product_id: item.product_id,
+            quantity: rowNum(item.quantity)
+          }
+        );
+      });
 
       res.json({
-        products: products,
+        products: snapshot.products,
         inventory: inventory,
-        customers: customers.map(function (item) {
+        customers: snapshot.customers.map(function (item) {
           return {
             id: item.id,
             name: item.name || '',
@@ -123,8 +89,8 @@ module.exports = function registerInventoryRoutes(ctx) {
     const input = req.body || {};
     const rows = Array.isArray(input.rows) ? input.rows : [];
     const branchId = Number(input.branch_id || 2);
-    const season = String(input.season || 'شتوي').trim() || 'شتوي';
     const batchId = String(input.batch_id || '').trim();
+    const mode = input.mode === 'replace' ? 'replace' : 'increment';
 
     if (!batchId || !/^[A-Za-z0-9_-]{4,80}$/.test(batchId)) {
       return res.status(400).json({ error: 'معرّف الاستيراد غير صالح.' });
@@ -139,8 +105,8 @@ module.exports = function registerInventoryRoutes(ctx) {
     const preparedByKey = new Map();
     for (const raw of rows) {
       const quantity = Number(raw.quantity || 0);
-      const weight = Number(raw.weight_kg || raw.weight || 0);
-      const price = Number(raw.purchase_price_usd == null ? raw.buy_usd || 0 : raw.purchase_price_usd);
+      const weight = Number(raw.weight_kg || 0);
+      const price = Number(raw.purchase_price_usd == null ? 0 : raw.purchase_price_usd);
       const nameEn = String(raw.name_en || '').trim();
       const nameAr = String(raw.name_ar || '').trim();
       const grade = normalizeGrade(raw.grade);
@@ -161,7 +127,7 @@ module.exports = function registerInventoryRoutes(ctx) {
         total_weight_kg: Number(raw.total_weight_kg || quantity * weight),
         invoice_total_usd: Number(raw.invoice_total_usd || quantity * price)
       };
-      const key = productKey(prepared, season);
+      const key = productKey(prepared);
       const existing = preparedByKey.get(key);
       if (existing) {
         existing.quantity += prepared.quantity;
@@ -174,133 +140,141 @@ module.exports = function registerInventoryRoutes(ctx) {
 
     try {
       const batchNote = 'IMPORT_BATCH:' + batchId;
-      let shipment = (await supabaseRequest(
-        'shipments?select=id,season,notes&notes=eq.' + encodeURIComponent(batchNote) + '&limit=1'
+      const priorBatch = (await supabaseRequest(
+        'shipments?select=id,notes&notes=eq.' + encodeURIComponent(batchNote) + '&limit=1'
       ) || [])[0];
-
-      if (!shipment) {
-        const shipmentId = crypto.randomUUID();
-        const inserted = await supabaseRequest('shipments', {
-          method: 'POST',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify({
-            id: shipmentId,
-            supplier: 'كشف مستورد',
-            supplier_id: null,
-            container_name: 'الجدول الجديد',
-            purchase_date: today(),
-            arrival_date: today(),
-            fx: 0,
-            season: season,
-            customs: 0,
-            clearance: 0,
-            other_cost: 0,
-            notes: batchNote
-          })
+      if (priorBatch) {
+        return res.json({
+          ok: true,
+          already_imported: true,
+          batch_id: batchId,
+          branch_id: branchId,
+          unique_rows: preparedByKey.size,
+          created_products: 0,
+          updated_products: 0,
+          updated_inventory: 0,
+          imported_quantity: 0
         });
-        shipment = Array.isArray(inserted) && inserted[0]
-          ? inserted[0]
-          : { id: shipmentId, season: season, notes: batchNote };
       }
 
-      const snapshot = await Promise.all([
-        supabaseRequest(
-          'bales?select=id,shipment_id,name_ar,name_en,grade,weight,buy_usd,status'
-        ),
-        supabaseRequest('shipments?select=id,season'),
-        getMovements()
-      ]);
-      const allBales = snapshot[0] || [];
-      const shipments = snapshot[1] || [];
-      const movements = snapshot[2] || [];
-
-      const seasonByShipment = new Map(shipments.map(function (item) {
-        return [String(item.id), item.season || ''];
-      }));
-      const baleByKey = new Map();
-      for (const bale of allBales) {
-        const key = productKey({
-          name_en: bale.name_en,
-          name_ar: bale.name_ar,
-          grade: bale.grade,
-          weight_kg: bale.weight
-        }, seasonByShipment.get(String(bale.shipment_id)) || '');
-        if (!baleByKey.has(key)) baleByKey.set(key, bale);
+      const snapshot = await getSnapshot();
+      const productByKey = new Map();
+      for (const product of snapshot.products) {
+        const key = productKey(product);
+        if (!productByKey.has(key)) productByKey.set(key, product);
       }
-
-      const completedMarkers = new Set(movements.map(function (item) {
-        return String(item.notes || '');
+      const inventoryByKey = new Map(snapshot.inventory.map(function (item) {
+        return [
+          String(item.branch_id) + '|' + String(item.product_id),
+          item
+        ];
       }));
+
       let createdProducts = 0;
-      let addedMovements = 0;
-      let skippedRows = 0;
+      let updatedProducts = 0;
+      let updatedInventory = 0;
       let importedQuantity = 0;
 
       for (const entry of preparedByKey.entries()) {
         const key = entry[0];
         const row = entry[1];
-        const digest = crypto.createHash('sha1').update(key).digest('hex').slice(0, 16);
-        const marker = 'IMPORT:' + batchId + ':' + digest;
-        if (completedMarkers.has(marker)) {
-          skippedRows += 1;
-          continue;
-        }
+        const productFields = {
+          name_ar: row.name_ar,
+          name_en: row.name_en,
+          grade: row.grade,
+          weight_kg: row.weight_kg,
+          purchase_price_usd: row.purchase_price_usd,
+          invoice_quantity: row.quantity,
+          total_weight_kg: row.total_weight_kg,
+          invoice_total_usd: row.invoice_total_usd
+        };
 
-        let bale = baleByKey.get(key);
-        if (!bale) {
-          const id = crypto.randomUUID();
-          const inserted = await supabaseRequest('bales', {
+        let product = productByKey.get(key);
+        if (!product) {
+          const inserted = await supabaseRequest('products', {
             method: 'POST',
             headers: { Prefer: 'return=representation' },
-            body: JSON.stringify({
-              id: id,
-              shipment_id: shipment.id,
-              grade: row.grade,
-              name_en: row.name_en,
-              name_ar: row.name_ar,
-              weight: row.weight_kg,
-              buy_usd: row.purchase_price_usd,
-              status: 'في المخزون'
-            })
+            body: JSON.stringify(productFields)
           });
-          bale = Array.isArray(inserted) && inserted[0] ? inserted[0] : {
-            id: id,
-            shipment_id: shipment.id,
-            grade: row.grade,
-            name_en: row.name_en,
-            name_ar: row.name_ar,
-            weight: row.weight_kg,
-            buy_usd: row.purchase_price_usd,
-            status: 'في المخزون'
-          };
-          baleByKey.set(key, bale);
+          if (!Array.isArray(inserted) || !inserted[0]) {
+            throw new Error('لم ترجع قاعدة البيانات رقم الصنف الجديد.');
+          }
+          product = inserted[0];
+          productByKey.set(key, product);
           createdProducts += 1;
+        } else {
+          await supabaseRequest(
+            'products?id=eq.' + encodeURIComponent(product.id),
+            {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: JSON.stringify(productFields)
+            }
+          );
+          Object.assign(product, productFields);
+          updatedProducts += 1;
         }
 
-        await supabaseRequest('stock_movements', {
-          method: 'POST',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            bale_id: bale.id,
+        const inventoryKey = String(branchId) + '|' + String(product.id);
+        const current = inventoryByKey.get(inventoryKey);
+        if (current) {
+          const targetQuantity = mode === 'replace'
+            ? row.quantity
+            : rowNum(current.quantity) + row.quantity;
+          await supabaseRequest(
+            'inventory?branch_id=eq.' + branchId + '&product_id=eq.' + encodeURIComponent(product.id),
+            {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: JSON.stringify({ quantity: targetQuantity })
+            }
+          );
+          current.quantity = targetQuantity;
+        } else {
+          const created = {
             branch_id: branchId,
-            qty: row.quantity,
-            date: today(),
-            notes: marker
-          })
-        });
-        completedMarkers.add(marker);
-        addedMovements += 1;
+            product_id: product.id,
+            quantity: row.quantity
+          };
+          await supabaseRequest('inventory', {
+            method: 'POST',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(created)
+          });
+          inventoryByKey.set(inventoryKey, created);
+        }
+        updatedInventory += 1;
         importedQuantity += row.quantity;
       }
 
+      await supabaseRequest('shipments', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          supplier: 'كشف مستورد',
+          supplier_id: null,
+          container_name: 'الجدول الجديد',
+          purchase_date: today(),
+          arrival_date: today(),
+          fx: 0,
+          season: String(input.season || 'شتوي'),
+          customs: 0,
+          clearance: 0,
+          other_cost: 0,
+          notes: batchNote
+        })
+      });
+
       res.json({
         ok: true,
+        already_imported: false,
         batch_id: batchId,
         branch_id: branchId,
         unique_rows: preparedByKey.size,
         created_products: createdProducts,
-        added_movements: addedMovements,
-        skipped_rows: skippedRows,
+        updated_products: updatedProducts,
+        updated_inventory: updatedInventory,
         imported_quantity: importedQuantity
       });
     } catch (error) {
@@ -323,41 +297,52 @@ module.exports = function registerInventoryRoutes(ctx) {
     }
 
     try {
-      const movements = await getMovements();
-      const available = movements
-        .filter(function (item) {
-          return String(item.bale_id) === productId &&
-            Number(item.branch_id) === fromBranch;
-        })
-        .reduce(function (sum, item) {
-          return sum + rowNum(item.qty);
-        }, 0);
+      const snapshot = await getSnapshot();
+      const fromRow = snapshot.inventory.find(function (item) {
+        return String(item.product_id) === productId &&
+          Number(item.branch_id) === fromBranch;
+      });
+      const available = rowNum(fromRow && fromRow.quantity);
       if (available < quantity) {
         throw new Error('الكمية المتاحة ' + available + ' فقط.');
       }
 
-      const transferId = crypto.randomUUID();
-      await supabaseRequest('stock_movements', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify([
-          {
-            bale_id: productId,
-            branch_id: fromBranch,
-            qty: -quantity,
-            date: today(),
-            notes: 'TRANSFER:' + transferId + ':OUT'
-          },
-          {
-            bale_id: productId,
-            branch_id: toBranch,
-            qty: quantity,
-            date: today(),
-            notes: 'TRANSFER:' + transferId + ':IN'
-          }
-        ])
+      const toRow = snapshot.inventory.find(function (item) {
+        return String(item.product_id) === productId &&
+          Number(item.branch_id) === toBranch;
       });
-      res.json({ ok: true, message: 'تم نقل المخزون وتسجيل الحركة.' });
+
+      await supabaseRequest(
+        'inventory?branch_id=eq.' + fromBranch + '&product_id=eq.' + encodeURIComponent(productId),
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ quantity: available - quantity })
+        }
+      );
+
+      if (toRow) {
+        await supabaseRequest(
+          'inventory?branch_id=eq.' + toBranch + '&product_id=eq.' + encodeURIComponent(productId),
+          {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({ quantity: rowNum(toRow.quantity) + quantity })
+          }
+        );
+      } else {
+        await supabaseRequest('inventory', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            branch_id: toBranch,
+            product_id: productId,
+            quantity: quantity
+          })
+        });
+      }
+
+      res.json({ ok: true, message: 'تم نقل المخزون.' });
     } catch (error) {
       res.status(400).json({ error: error.message });
     }
