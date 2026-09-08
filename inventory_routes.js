@@ -22,38 +22,183 @@ module.exports = function registerInventoryRoutes(ctx) {
       .replace(/\s+/g, ' ');
   }
 
-  function productKey(row) {
+  function normalizeSeason(value) {
+    return normalizeArabic(value || 'غير محدد');
+  }
+
+  function productKey(row, season) {
     const name = normalizeName(row.name_en) || normalizeArabic(row.name_ar);
     return [
       name,
       normalizeGrade(row.grade),
-      Number(row.weight_kg || 0)
+      Number(row.weight_kg == null ? row.weight : row.weight_kg),
+      normalizeSeason(season || row.season)
     ].join('|');
   }
 
-  async function getSnapshot() {
+  function stableUuid(value) {
+    const chars = crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32).split('');
+    chars[12] = '5';
+    chars[16] = ((parseInt(chars[16], 16) & 3) | 8).toString(16);
+    const hex = chars.join('');
+    return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+  }
+
+  function branchFromStatus(status) {
+    const match = String(status || '').match(/\[BRANCH:(\d+)\]/i);
+    return match ? Number(match[1]) : 1;
+  }
+
+  function branchStatus(branchId) {
+    return '[BRANCH:' + Number(branchId) + '] متوفر';
+  }
+
+  function isSold(status) {
+    return normalizeArabic(status).includes('مباع');
+  }
+
+  async function getRawSnapshot() {
     const result = await Promise.all([
-      supabaseRequest(
-        'products?select=id,name_ar,name_en,grade,weight_kg,purchase_price_usd,invoice_quantity,total_weight_kg,invoice_total_usd&order=id.asc'
-      ),
-      supabaseRequest(
-        'inventory?select=branch_id,product_id,quantity&order=branch_id.asc'
-      ),
-      supabaseRequest(
-        'customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18%3A35%3A00Z&order=created_at.asc'
-      )
+      supabaseRequest('shipments?select=id,season,notes&order=created_at.asc'),
+      supabaseRequest('bales?select=id,shipment_id,name_ar,name_en,grade,weight,buy_usd,status&order=created_at.asc'),
+      supabaseRequest('customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18%3A35%3A00Z&order=created_at.asc')
     ]);
     return {
-      products: result[0] || [],
-      inventory: result[1] || [],
+      shipments: result[0] || [],
+      bales: result[1] || [],
       customers: result[2] || []
     };
   }
 
+  function aggregateSnapshot(snapshot) {
+    const shipmentById = new Map(snapshot.shipments.map(item => [String(item.id), item]));
+    const productByKey = new Map();
+    const inventoryByKey = new Map();
+
+    for (const bale of snapshot.bales) {
+      const shipment = shipmentById.get(String(bale.shipment_id)) || {};
+      const season = String(shipment.season || 'غير محدد');
+      const shaped = {
+        name_ar: String(bale.name_ar || ''),
+        name_en: String(bale.name_en || ''),
+        grade: normalizeGrade(bale.grade),
+        weight_kg: rowNum(bale.weight),
+        season
+      };
+      const key = productKey(shaped, season);
+      let product = productByKey.get(key);
+      if (!product) {
+        product = {
+          id: stableUuid('product|' + key),
+          name_ar: shaped.name_ar,
+          name_en: shaped.name_en,
+          grade: shaped.grade,
+          weight_kg: shaped.weight_kg,
+          purchase_price_usd: 0,
+          invoice_quantity: 0,
+          total_weight_kg: 0,
+          invoice_total_usd: 0,
+          season
+        };
+        productByKey.set(key, product);
+      }
+
+      product.invoice_quantity += 1;
+      product.total_weight_kg += shaped.weight_kg;
+      product.invoice_total_usd += rowNum(bale.buy_usd);
+
+      if (!isSold(bale.status)) {
+        const branchId = branchFromStatus(bale.status);
+        const inventoryKey = branchId + '|' + product.id;
+        let inventory = inventoryByKey.get(inventoryKey);
+        if (!inventory) {
+          inventory = {
+            branch_id: branchId,
+            product_id: product.id,
+            quantity: 0,
+            name_ar: product.name_ar,
+            name_en: product.name_en,
+            grade: product.grade,
+            weight_kg: product.weight_kg,
+            purchase_price_usd: 0,
+            season: product.season
+          };
+          inventoryByKey.set(inventoryKey, inventory);
+        }
+        inventory.quantity += 1;
+        inventory.purchase_price_usd += rowNum(bale.buy_usd);
+      }
+    }
+
+    for (const product of productByKey.values()) {
+      product.purchase_price_usd = product.invoice_quantity
+        ? product.invoice_total_usd / product.invoice_quantity
+        : 0;
+    }
+    for (const inventory of inventoryByKey.values()) {
+      inventory.purchase_price_usd = inventory.quantity
+        ? inventory.purchase_price_usd / inventory.quantity
+        : 0;
+    }
+
+    return {
+      products: Array.from(productByKey.values()),
+      inventory: Array.from(inventoryByKey.values()),
+      customers: snapshot.customers.map(item => ({
+        id: item.id,
+        name: item.name || '',
+        phone: item.phone || '',
+        debt: rowNum(item.debt)
+      }))
+    };
+  }
+
+  function prepareRows(rows, season) {
+    const preparedByKey = new Map();
+    for (const raw of rows) {
+      const quantity = Number(raw.quantity || 0);
+      const weight = Number(raw.weight_kg || 0);
+      const price = Number(raw.purchase_price_usd == null ? 0 : raw.purchase_price_usd);
+      const nameEn = String(raw.name_en || '').trim();
+      const nameAr = String(raw.name_ar || '').trim();
+      const grade = normalizeGrade(raw.grade);
+
+      if ((!nameEn && !nameAr) || !Number.isInteger(quantity) || quantity <= 0 || !(weight > 0) || price < 0) {
+        throw new Error('بيانات صنف غير مكتملة: ' + (nameAr || nameEn || 'بدون اسم'));
+      }
+
+      const prepared = {
+        name_en: nameEn,
+        name_ar: nameAr,
+        grade,
+        quantity,
+        weight_kg: weight,
+        total_weight_kg: Number(raw.total_weight_kg || quantity * weight),
+        invoice_total_usd: Number(raw.invoice_total_usd || quantity * price),
+        purchase_price_usd: price,
+        season
+      };
+      const key = productKey(prepared, season);
+      const existing = preparedByKey.get(key);
+      if (existing) {
+        existing.quantity += prepared.quantity;
+        existing.total_weight_kg += prepared.total_weight_kg;
+        existing.invoice_total_usd += prepared.invoice_total_usd;
+        existing.purchase_price_usd = existing.invoice_total_usd / existing.quantity;
+      } else {
+        preparedByKey.set(key, prepared);
+      }
+    }
+    return preparedByKey;
+  }
+
   app.get('/api/v2/health', async function (_req, res) {
     try {
-      await supabaseRequest('products?select=id&limit=1');
-      res.json({ ok: true, database: true, transport: 'rest' });
+      await Promise.all([
+        supabaseRequest('shipments?select=id&limit=1'),
+        supabaseRequest('bales?select=id&limit=1')
+      ]);
+      res.json({ ok: true, database: true, storage: 'bales' });
     } catch (error) {
       res.status(500).json({ ok: false, database: false, error: error.message });
     }
@@ -61,34 +206,8 @@ module.exports = function registerInventoryRoutes(ctx) {
 
   app.get('/api/v2/data', async function (_req, res) {
     try {
-      const snapshot = await getSnapshot();
-      const productById = new Map(snapshot.products.map(function (item) {
-        return [String(item.id), item];
-      }));
-      const inventory = snapshot.inventory.map(function (item) {
-        return Object.assign(
-          {},
-          productById.get(String(item.product_id)) || {},
-          {
-            branch_id: Number(item.branch_id),
-            product_id: item.product_id,
-            quantity: rowNum(item.quantity)
-          }
-        );
-      });
-
-      res.json({
-        products: snapshot.products,
-        inventory: inventory,
-        customers: snapshot.customers.map(function (item) {
-          return {
-            id: item.id,
-            name: item.name || '',
-            phone: item.phone || '',
-            debt: rowNum(item.debt)
-          };
-        })
-      });
+      res.set && res.set('Cache-Control', 'no-store');
+      res.json(aggregateSnapshot(await getRawSnapshot()));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -99,7 +218,7 @@ module.exports = function registerInventoryRoutes(ctx) {
     const rows = Array.isArray(input.rows) ? input.rows : [];
     const branchId = Number(input.branch_id || 2);
     const batchId = String(input.batch_id || '').trim();
-    const mode = input.mode === 'replace' ? 'replace' : 'increment';
+    const season = String(input.season || 'شتوي').trim() || 'شتوي';
 
     if (!batchId || !/^[A-Za-z0-9_-]{4,80}$/.test(batchId)) {
       return res.status(400).json({ error: 'معرّف الاستيراد غير صالح.' });
@@ -111,48 +230,22 @@ module.exports = function registerInventoryRoutes(ctx) {
       return res.status(400).json({ error: 'الجدول فارغ أو أكبر من الحد المسموح.' });
     }
 
-    const preparedByKey = new Map();
-    for (const raw of rows) {
-      const quantity = Number(raw.quantity || 0);
-      const weight = Number(raw.weight_kg || 0);
-      const price = Number(raw.purchase_price_usd == null ? 0 : raw.purchase_price_usd);
-      const nameEn = String(raw.name_en || '').trim();
-      const nameAr = String(raw.name_ar || '').trim();
-      const grade = normalizeGrade(raw.grade);
-
-      if ((!nameEn && !nameAr) || !(quantity > 0) || !(weight > 0) || price < 0) {
-        return res.status(400).json({
-          error: 'بيانات صنف غير مكتملة: ' + (nameAr || nameEn || 'بدون اسم')
-        });
-      }
-
-      const prepared = {
-        name_en: nameEn,
-        name_ar: nameAr,
-        grade: grade,
-        quantity: quantity,
-        weight_kg: weight,
-        purchase_price_usd: price,
-        total_weight_kg: Number(raw.total_weight_kg || quantity * weight),
-        invoice_total_usd: Number(raw.invoice_total_usd || quantity * price)
-      };
-      const key = productKey(prepared);
-      const existing = preparedByKey.get(key);
-      if (existing) {
-        existing.quantity += prepared.quantity;
-        existing.total_weight_kg += prepared.total_weight_kg;
-        existing.invoice_total_usd += prepared.invoice_total_usd;
-      } else {
-        preparedByKey.set(key, prepared);
-      }
+    let preparedByKey;
+    try {
+      preparedByKey = prepareRows(rows, season);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
     }
 
+    const batchNote = 'IMPORT_BATCH:' + batchId;
+    const pendingNote = 'IMPORT_PENDING:' + batchId;
+    const shipmentId = stableUuid('shipment|' + batchId);
+
     try {
-      const batchNote = 'IMPORT_BATCH:' + batchId;
-      const priorBatch = (await supabaseRequest(
-        'shipments?select=id,notes&notes=eq.' + encodeURIComponent(batchNote) + '&limit=1'
+      const completed = (await supabaseRequest(
+        'shipments?select=id&notes=eq.' + encodeURIComponent(batchNote) + '&limit=1'
       ) || [])[0];
-      if (priorBatch) {
+      if (completed) {
         return res.json({
           ok: true,
           already_imported: true,
@@ -167,113 +260,79 @@ module.exports = function registerInventoryRoutes(ctx) {
         });
       }
 
-      const snapshot = await getSnapshot();
-      const productByKey = new Map();
-      for (const product of snapshot.products) {
-        const key = productKey(product);
-        if (!productByKey.has(key)) productByKey.set(key, product);
-      }
-      const inventoryByKey = new Map(snapshot.inventory.map(function (item) {
-        return [
-          String(item.branch_id) + '|' + String(item.product_id),
-          item
-        ];
-      }));
+      const rawBefore = await getRawSnapshot();
+      const aggregateBefore = aggregateSnapshot(rawBefore);
+      const existingProductIds = new Set(aggregateBefore.products.map(item => String(item.id)));
+      const existingShipment = (await supabaseRequest(
+        'shipments?select=id,notes&id=eq.' + encodeURIComponent(shipmentId) + '&limit=1'
+      ) || [])[0];
 
+      if (!existingShipment) {
+        await supabaseRequest('shipments', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            id: shipmentId,
+            supplier: 'كشف مستورد',
+            supplier_id: null,
+            container_name: 'الجدول الجديد',
+            purchase_date: today(),
+            arrival_date: today(),
+            fx: 0,
+            season,
+            customs: 0,
+            clearance: 0,
+            other_cost: 0,
+            notes: pendingNote
+          })
+        });
+      }
+
+      const currentBales = await supabaseRequest(
+        'bales?select=id&shipment_id=eq.' + encodeURIComponent(shipmentId)
+      ) || [];
+      const currentIds = new Set(currentBales.map(item => String(item.id)));
+      const pendingBales = [];
+      let importedQuantity = 0;
       let createdProducts = 0;
       let updatedProducts = 0;
-      let updatedInventory = 0;
-      let importedQuantity = 0;
 
-      for (const entry of preparedByKey.entries()) {
-        const key = entry[0];
-        const row = entry[1];
-        const productFields = {
-          name_ar: row.name_ar,
-          name_en: row.name_en,
-          grade: row.grade,
-          weight_kg: row.weight_kg,
-          purchase_price_usd: row.purchase_price_usd,
-          invoice_quantity: row.quantity,
-          total_weight_kg: row.total_weight_kg,
-          invoice_total_usd: row.invoice_total_usd
-        };
+      for (const [key, row] of preparedByKey.entries()) {
+        const productId = stableUuid('product|' + key);
+        if (existingProductIds.has(productId)) updatedProducts += 1;
+        else createdProducts += 1;
 
-        let product = productByKey.get(key);
-        if (!product) {
-          const inserted = await supabaseRequest('products', {
-            method: 'POST',
-            headers: { Prefer: 'return=representation' },
-            body: JSON.stringify(productFields)
-          });
-          if (!Array.isArray(inserted) || !inserted[0]) {
-            throw new Error('لم ترجع قاعدة البيانات رقم الصنف الجديد.');
-          }
-          product = inserted[0];
-          productByKey.set(key, product);
-          createdProducts += 1;
-        } else {
-          await supabaseRequest(
-            'products?id=eq.' + encodeURIComponent(product.id),
-            {
-              method: 'PATCH',
-              headers: { Prefer: 'return=minimal' },
-              body: JSON.stringify(productFields)
-            }
-          );
-          Object.assign(product, productFields);
-          updatedProducts += 1;
-        }
-
-        const inventoryKey = String(branchId) + '|' + String(product.id);
-        const current = inventoryByKey.get(inventoryKey);
-        if (current) {
-          const targetQuantity = mode === 'replace'
-            ? row.quantity
-            : rowNum(current.quantity) + row.quantity;
-          await supabaseRequest(
-            'inventory?branch_id=eq.' + branchId + '&product_id=eq.' + encodeURIComponent(product.id),
-            {
-              method: 'PATCH',
-              headers: { Prefer: 'return=minimal' },
-              body: JSON.stringify({ quantity: targetQuantity })
-            }
-          );
-          current.quantity = targetQuantity;
-        } else {
-          const created = {
-            branch_id: branchId,
-            product_id: product.id,
-            quantity: row.quantity
-          };
-          await supabaseRequest('inventory', {
-            method: 'POST',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(created)
-          });
-          inventoryByKey.set(inventoryKey, created);
-        }
-        updatedInventory += 1;
         importedQuantity += row.quantity;
+        const unitPrice = row.quantity ? row.invoice_total_usd / row.quantity : row.purchase_price_usd;
+        for (let index = 1; index <= row.quantity; index += 1) {
+          const id = stableUuid('bale|' + batchId + '|' + key + '|' + index);
+          if (currentIds.has(id)) continue;
+          pendingBales.push({
+            id,
+            shipment_id: shipmentId,
+            grade: row.grade,
+            name_en: row.name_en,
+            name_ar: row.name_ar,
+            weight: row.weight_kg,
+            buy_usd: unitPrice,
+            status: branchStatus(branchId)
+          });
+        }
       }
 
-      await supabaseRequest('shipments', {
-        method: 'POST',
+      const chunkSize = 200;
+      for (let start = 0; start < pendingBales.length; start += chunkSize) {
+        await supabaseRequest('bales', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(pendingBales.slice(start, start + chunkSize))
+        });
+      }
+
+      await supabaseRequest('shipments?id=eq.' + encodeURIComponent(shipmentId), {
+        method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          id: crypto.randomUUID(),
-          supplier: 'كشف مستورد',
-          supplier_id: null,
-          container_name: 'الجدول الجديد',
-          purchase_date: today(),
-          arrival_date: today(),
-          fx: 0,
-          season: String(input.season || 'شتوي'),
-          customs: 0,
-          clearance: 0,
-          other_cost: 0,
-          notes: batchNote
-        })
+        body: JSON.stringify({ notes: batchNote })
       });
 
       res.json({
@@ -284,12 +343,17 @@ module.exports = function registerInventoryRoutes(ctx) {
         unique_rows: preparedByKey.size,
         created_products: createdProducts,
         updated_products: updatedProducts,
-        updated_inventory: updatedInventory,
+        updated_inventory: preparedByKey.size,
         imported_quantity: importedQuantity,
+        inserted_bales: pendingBales.length,
         skipped_rows: 0
       });
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      res.status(400).json({
+        error: error.message,
+        retry_safe: true,
+        batch_id: batchId
+      });
     }
   });
 
@@ -303,53 +367,38 @@ module.exports = function registerInventoryRoutes(ctx) {
     if (!productId || !Number.isInteger(fromBranch) || !Number.isInteger(toBranch)) {
       return res.status(400).json({ error: 'بيانات النقل غير مكتملة.' });
     }
-    if (fromBranch === toBranch || !(quantity > 0)) {
+    if (fromBranch === toBranch || !Number.isInteger(quantity) || quantity <= 0) {
       return res.status(400).json({ error: 'اختر فرعين مختلفين وكمية صحيحة.' });
     }
 
     try {
-      const snapshot = await getSnapshot();
-      const fromRow = snapshot.inventory.find(function (item) {
-        return String(item.product_id) === productId &&
-          Number(item.branch_id) === fromBranch;
+      const raw = await getRawSnapshot();
+      const shipmentById = new Map(raw.shipments.map(item => [String(item.id), item]));
+      const available = raw.bales.filter(bale => {
+        const shipment = shipmentById.get(String(bale.shipment_id)) || {};
+        const key = productKey({
+          name_ar: bale.name_ar,
+          name_en: bale.name_en,
+          grade: bale.grade,
+          weight_kg: bale.weight
+        }, shipment.season);
+        return stableUuid('product|' + key) === productId &&
+          branchFromStatus(bale.status) === fromBranch &&
+          !isSold(bale.status);
       });
-      const available = rowNum(fromRow && fromRow.quantity);
-      if (available < quantity) {
-        throw new Error('الكمية المتاحة ' + available + ' فقط.');
+
+      if (available.length < quantity) {
+        throw new Error('الكمية المتاحة ' + available.length + ' فقط.');
       }
 
-      const toRow = snapshot.inventory.find(function (item) {
-        return String(item.product_id) === productId &&
-          Number(item.branch_id) === toBranch;
-      });
-
-      await supabaseRequest(
-        'inventory?branch_id=eq.' + fromBranch + '&product_id=eq.' + encodeURIComponent(productId),
-        {
+      const selected = available.slice(0, quantity);
+      const chunkSize = 80;
+      for (let start = 0; start < selected.length; start += chunkSize) {
+        const ids = selected.slice(start, start + chunkSize).map(item => item.id);
+        await supabaseRequest('bales?id=in.(' + ids.join(',') + ')', {
           method: 'PATCH',
           headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ quantity: available - quantity })
-        }
-      );
-
-      if (toRow) {
-        await supabaseRequest(
-          'inventory?branch_id=eq.' + toBranch + '&product_id=eq.' + encodeURIComponent(productId),
-          {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({ quantity: rowNum(toRow.quantity) + quantity })
-          }
-        );
-      } else {
-        await supabaseRequest('inventory', {
-          method: 'POST',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            branch_id: toBranch,
-            product_id: productId,
-            quantity: quantity
-          })
+          body: JSON.stringify({ status: branchStatus(toBranch) })
         });
       }
 
@@ -369,7 +418,7 @@ module.exports = function registerInventoryRoutes(ctx) {
         method: 'POST',
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({
-          name: name,
+          name,
           phone: String(input.phone || ''),
           debt: Number(input.debt || 0)
         })
@@ -380,4 +429,3 @@ module.exports = function registerInventoryRoutes(ctx) {
     }
   });
 };
-
