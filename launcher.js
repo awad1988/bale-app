@@ -42,7 +42,11 @@ Module.prototype._compile = function(content, filename){
   if (String(filename || '').endsWith('/server.js') || String(filename || '').endsWith('\\server.js')) {
     content = String(content)
       .replaceAll(".match(/[BALE_ID:([^]]+)]/)", ".match(/\\[BALE_ID:([^\\]]+)\\]/)")
-      .replaceAll(".replace(/s*[BALE_ID:[^]]+]s*/g", ".replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g");
+      .replaceAll(".replace(/s*[BALE_ID:[^]]+]s*/g", ".replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g")
+      .replace(
+        "app.get('*', (_req, res) => {",
+        "require('./inventory_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\napp.get('*', (_req, res) => {"
+      );
   }
   return originalCompile.call(this, content, filename);
 };
