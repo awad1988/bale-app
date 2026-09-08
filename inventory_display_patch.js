@@ -1,6 +1,7 @@
 (function(){
+  let fullInventory=null;
   function val(obj,a,b){ return obj && (obj[a] != null ? obj[a] : obj[b]); }
-  function esc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[c])); }
+  function esc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
   function normName(v){
     return String(v||'')
       .trim()
@@ -26,11 +27,27 @@
     if(id===4) return {id,label:'الفرع القديم'};
     return {id,label:s.replace(/\[BRANCH:\d+\]/ig,'').trim()||'متوفر'};
   }
+
+  async function loadFullInventory(){
+    try{
+      const r=await fetch('/api/v3/inventory/full',{cache:'no-store'});
+      const b=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(b.error||'فشل تحميل المخزون الكامل');
+      fullInventory=b;
+      renderAggregatedInventory();
+    }catch(e){
+      console.error(e);
+      fullInventory=null;
+      renderAggregatedInventory();
+    }
+  }
+
   function renderAggregatedInventory(){
     const body=document.getElementById('baleRows');
     if(!body || typeof data==='undefined') return;
-    const bales=Array.isArray(data.bales)?data.bales:[];
-    const shipments=Array.isArray(data.shipments)?data.shipments:[];
+    const source=fullInventory||data||{};
+    const bales=Array.isArray(source.bales)?source.bales:[];
+    const shipments=Array.isArray(source.shipments)?source.shipments:[];
     const shipMap=new Map(shipments.map(s=>[String(s.id),s]));
     const groups=new Map();
 
@@ -102,6 +119,7 @@
       }
     }catch(e){}
     renderAggregatedInventory();
+    loadFullInventory();
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install); else install();
 })();
