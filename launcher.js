@@ -29,6 +29,10 @@ fs.readFileSync = function(file, options){
     );
 
     patched = patched
+      .replace(
+        "apikey: SUPABASE_KEY,",
+        "apikey: SUPABASE_KEY,\\n      'Authorization': `Bearer ${SUPABASE_KEY}`,"
+      )
       .replace("supabaseRequest('customers?select=id,name,debt')", "supabaseRequest('customers?select=id,name,debt,created_at&created_at=gt.2026-09-04T18:35:00Z')")
       .replace("supabaseRequest('customers?select=*&order=created_at.asc')", "supabaseRequest('customers?select=*&created_at=gt.2026-09-04T18:35:00Z&order=created_at.asc')");
 
