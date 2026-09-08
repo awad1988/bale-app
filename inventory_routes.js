@@ -2,9 +2,27 @@ const crypto = require('crypto');
 
 module.exports = function registerInventoryRoutes(ctx) {
   const app = ctx.app;
-  const supabaseRequest = ctx.supabaseRequest;
   const rowNum = ctx.rowNum;
   const normalizeArabic = ctx.normalizeArabic;
+  const pool = ctx.pool || new (require('pg').Pool)(
+    process.env.DATABASE_URL
+      ? {
+          connectionString: process.env.DATABASE_URL,
+          ssl: { rejectUnauthorized: false },
+          max: 5
+        }
+      : {
+          host: process.env.PGHOST,
+          port: Number(process.env.PGPORT || 5432),
+          user: process.env.PGUSER,
+          password: process.env.PGPASSWORD,
+          database: process.env.PGDATABASE,
+          ssl: String(process.env.PGSSL || 'true').toLowerCase() === 'false'
+            ? false
+            : { rejectUnauthorized: false },
+          max: 5
+        }
+  );
   const today = () => new Date().toISOString().slice(0, 10);
 
   function normalizeGrade(value) {
@@ -31,24 +49,77 @@ module.exports = function registerInventoryRoutes(ctx) {
     ].join('|');
   }
 
-  async function getSnapshot() {
+  function prepareRows(rows) {
+    const preparedByKey = new Map();
+    for (const raw of rows) {
+      const quantity = Number(raw.quantity || 0);
+      const weight = Number(raw.weight_kg || 0);
+      const price = Number(raw.purchase_price_usd == null ? 0 : raw.purchase_price_usd);
+      const nameEn = String(raw.name_en || '').trim();
+      const nameAr = String(raw.name_ar || '').trim();
+      const grade = normalizeGrade(raw.grade);
+
+      if ((!nameEn && !nameAr) || !(quantity > 0) || !(weight > 0) || price < 0) {
+        throw new Error(
+          'بيانات صنف غير مكتملة: ' + (nameAr || nameEn || 'بدون اسم')
+        );
+      }
+
+      const prepared = {
+        name_en: nameEn,
+        name_ar: nameAr,
+        grade: grade,
+        quantity: quantity,
+        weight_kg: weight,
+        purchase_price_usd: price,
+        total_weight_kg: Number(raw.total_weight_kg || quantity * weight),
+        invoice_total_usd: Number(raw.invoice_total_usd || quantity * price)
+      };
+      const key = productKey(prepared);
+      const existing = preparedByKey.get(key);
+      if (existing) {
+        existing.quantity += prepared.quantity;
+        existing.total_weight_kg += prepared.total_weight_kg;
+        existing.invoice_total_usd += prepared.invoice_total_usd;
+      } else {
+        preparedByKey.set(key, prepared);
+      }
+    }
+    return preparedByKey;
+  }
+
+  async function getSnapshot(client) {
+    const db = client || pool;
     const result = await Promise.all([
-      supabaseRequest(
-        'products?select=id,name_ar,name_en,grade,weight_kg,purchase_price_usd,invoice_quantity,total_weight_kg,invoice_total_usd&order=id.asc'
+      db.query(
+        'select id, name_ar, name_en, grade, weight_kg, purchase_price_usd, invoice_quantity, total_weight_kg, invoice_total_usd from products order by id'
       ),
-      supabaseRequest(
-        'inventory?select=branch_id,product_id,quantity&order=branch_id.asc'
+      db.query(
+        'select branch_id, product_id, quantity from inventory order by branch_id, product_id'
       ),
-      supabaseRequest(
-        'customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18%3A35%3A00Z&order=created_at.asc'
+      db.query(
+        "select id, name, phone, debt from customers where created_at > timestamp '2026-09-04 18:35:00' order by created_at"
       )
     ]);
     return {
-      products: result[0] || [],
-      inventory: result[1] || [],
-      customers: result[2] || []
+      products: result[0].rows || [],
+      inventory: result[1].rows || [],
+      customers: result[2].rows || []
     };
   }
+
+  app.get('/api/v2/health', async function (_req, res) {
+    try {
+      const result = await pool.query('select now() as now');
+      res.json({ ok: true, database: true, time: result.rows[0].now });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        database: false,
+        error: error.message
+      });
+    }
+  });
 
   app.get('/api/v2/data', async function (_req, res) {
     try {
@@ -63,7 +134,13 @@ module.exports = function registerInventoryRoutes(ctx) {
           {
             branch_id: Number(item.branch_id),
             product_id: item.product_id,
-            quantity: rowNum(item.quantity)
+            quantity: rowNum(item.quantity),
+            weight_kg: rowNum(
+              (productById.get(String(item.product_id)) || {}).weight_kg
+            ),
+            purchase_price_usd: rowNum(
+              (productById.get(String(item.product_id)) || {}).purchase_price_usd
+            )
           }
         );
       });
@@ -102,48 +179,23 @@ module.exports = function registerInventoryRoutes(ctx) {
       return res.status(400).json({ error: 'الجدول فارغ أو أكبر من الحد المسموح.' });
     }
 
-    const preparedByKey = new Map();
-    for (const raw of rows) {
-      const quantity = Number(raw.quantity || 0);
-      const weight = Number(raw.weight_kg || 0);
-      const price = Number(raw.purchase_price_usd == null ? 0 : raw.purchase_price_usd);
-      const nameEn = String(raw.name_en || '').trim();
-      const nameAr = String(raw.name_ar || '').trim();
-      const grade = normalizeGrade(raw.grade);
-
-      if ((!nameEn && !nameAr) || !(quantity > 0) || !(weight > 0) || price < 0) {
-        return res.status(400).json({
-          error: 'بيانات صنف غير مكتملة: ' + (nameAr || nameEn || 'بدون اسم')
-        });
-      }
-
-      const prepared = {
-        name_en: nameEn,
-        name_ar: nameAr,
-        grade: grade,
-        quantity: quantity,
-        weight_kg: weight,
-        purchase_price_usd: price,
-        total_weight_kg: Number(raw.total_weight_kg || quantity * weight),
-        invoice_total_usd: Number(raw.invoice_total_usd || quantity * price)
-      };
-      const key = productKey(prepared);
-      const existing = preparedByKey.get(key);
-      if (existing) {
-        existing.quantity += prepared.quantity;
-        existing.total_weight_kg += prepared.total_weight_kg;
-        existing.invoice_total_usd += prepared.invoice_total_usd;
-      } else {
-        preparedByKey.set(key, prepared);
-      }
+    let preparedByKey;
+    try {
+      preparedByKey = prepareRows(rows);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
     }
 
+    const client = await pool.connect();
     try {
+      await client.query('begin');
       const batchNote = 'IMPORT_BATCH:' + batchId;
-      const priorBatch = (await supabaseRequest(
-        'shipments?select=id,notes&notes=eq.' + encodeURIComponent(batchNote) + '&limit=1'
-      ) || [])[0];
-      if (priorBatch) {
+      const priorBatch = await client.query(
+        'select id from shipments where notes = $1 limit 1',
+        [batchNote]
+      );
+      if (priorBatch.rows[0]) {
+        await client.query('rollback');
         return res.json({
           ok: true,
           already_imported: true,
@@ -157,18 +209,12 @@ module.exports = function registerInventoryRoutes(ctx) {
         });
       }
 
-      const snapshot = await getSnapshot();
+      const snapshot = await getSnapshot(client);
       const productByKey = new Map();
       for (const product of snapshot.products) {
         const key = productKey(product);
         if (!productByKey.has(key)) productByKey.set(key, product);
       }
-      const inventoryByKey = new Map(snapshot.inventory.map(function (item) {
-        return [
-          String(item.branch_id) + '|' + String(item.product_id),
-          item
-        ];
-      }));
 
       let createdProducts = 0;
       let updatedProducts = 0;
@@ -178,93 +224,85 @@ module.exports = function registerInventoryRoutes(ctx) {
       for (const entry of preparedByKey.entries()) {
         const key = entry[0];
         const row = entry[1];
-        const productFields = {
-          name_ar: row.name_ar,
-          name_en: row.name_en,
-          grade: row.grade,
-          weight_kg: row.weight_kg,
-          purchase_price_usd: row.purchase_price_usd,
-          invoice_quantity: row.quantity,
-          total_weight_kg: row.total_weight_kg,
-          invoice_total_usd: row.invoice_total_usd
-        };
-
         let product = productByKey.get(key);
+
         if (!product) {
-          const inserted = await supabaseRequest('products', {
-            method: 'POST',
-            headers: { Prefer: 'return=representation' },
-            body: JSON.stringify(productFields)
-          });
-          if (!Array.isArray(inserted) || !inserted[0]) {
-            throw new Error('لم ترجع قاعدة البيانات رقم الصنف الجديد.');
-          }
-          product = inserted[0];
+          const inserted = await client.query(
+            'insert into products (name_ar, name_en, grade, weight_kg, purchase_price_usd, invoice_quantity, total_weight_kg, invoice_total_usd) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *',
+            [
+              row.name_ar,
+              row.name_en,
+              row.grade,
+              row.weight_kg,
+              row.purchase_price_usd,
+              row.quantity,
+              row.total_weight_kg,
+              row.invoice_total_usd
+            ]
+          );
+          product = inserted.rows[0];
           productByKey.set(key, product);
           createdProducts += 1;
         } else {
-          await supabaseRequest(
-            'products?id=eq.' + encodeURIComponent(product.id),
-            {
-              method: 'PATCH',
-              headers: { Prefer: 'return=minimal' },
-              body: JSON.stringify(productFields)
-            }
+          const updated = await client.query(
+            'update products set name_ar=$2, name_en=$3, grade=$4, weight_kg=$5, purchase_price_usd=$6, invoice_quantity=$7, total_weight_kg=$8, invoice_total_usd=$9 where id=$1 returning *',
+            [
+              product.id,
+              row.name_ar,
+              row.name_en,
+              row.grade,
+              row.weight_kg,
+              row.purchase_price_usd,
+              row.quantity,
+              row.total_weight_kg,
+              row.invoice_total_usd
+            ]
           );
-          Object.assign(product, productFields);
+          product = updated.rows[0];
+          productByKey.set(key, product);
           updatedProducts += 1;
         }
 
-        const inventoryKey = String(branchId) + '|' + String(product.id);
-        const current = inventoryByKey.get(inventoryKey);
-        if (current) {
+        const locked = await client.query(
+          'select quantity from inventory where branch_id=$1 and product_id=$2 for update',
+          [branchId, product.id]
+        );
+        if (locked.rows[0]) {
+          const currentQuantity = rowNum(locked.rows[0].quantity);
           const targetQuantity = mode === 'replace'
             ? row.quantity
-            : rowNum(current.quantity) + row.quantity;
-          await supabaseRequest(
-            'inventory?branch_id=eq.' + branchId + '&product_id=eq.' + encodeURIComponent(product.id),
-            {
-              method: 'PATCH',
-              headers: { Prefer: 'return=minimal' },
-              body: JSON.stringify({ quantity: targetQuantity })
-            }
+            : currentQuantity + row.quantity;
+          await client.query(
+            'update inventory set quantity=$3 where branch_id=$1 and product_id=$2',
+            [branchId, product.id, targetQuantity]
           );
-          current.quantity = targetQuantity;
         } else {
-          const created = {
-            branch_id: branchId,
-            product_id: product.id,
-            quantity: row.quantity
-          };
-          await supabaseRequest('inventory', {
-            method: 'POST',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(created)
-          });
-          inventoryByKey.set(inventoryKey, created);
+          await client.query(
+            'insert into inventory (branch_id, product_id, quantity) values ($1,$2,$3)',
+            [branchId, product.id, row.quantity]
+          );
         }
         updatedInventory += 1;
         importedQuantity += row.quantity;
       }
 
-      await supabaseRequest('shipments', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          id: crypto.randomUUID(),
-          supplier: 'كشف مستورد',
-          supplier_id: null,
-          container_name: 'الجدول الجديد',
-          purchase_date: today(),
-          arrival_date: today(),
-          fx: 0,
-          season: String(input.season || 'شتوي'),
-          customs: 0,
-          clearance: 0,
-          other_cost: 0,
-          notes: batchNote
-        })
-      });
+      await client.query(
+        'insert into shipments (id, supplier, container_name, purchase_date, arrival_date, fx, season, customs, clearance, other_cost, notes) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [
+          crypto.randomUUID(),
+          'كشف مستورد',
+          'الجدول الجديد',
+          today(),
+          today(),
+          0,
+          String(input.season || 'شتوي'),
+          0,
+          0,
+          0,
+          'IMPORT_BATCH:' + batchId
+        ]
+      );
+      await client.query('commit');
 
       res.json({
         ok: true,
@@ -278,7 +316,10 @@ module.exports = function registerInventoryRoutes(ctx) {
         imported_quantity: importedQuantity
       });
     } catch (error) {
+      await client.query('rollback').catch(function () {});
       res.status(400).json({ error: error.message });
+    } finally {
+      client.release();
     }
   });
 
@@ -296,55 +337,45 @@ module.exports = function registerInventoryRoutes(ctx) {
       return res.status(400).json({ error: 'اختر فرعين مختلفين وكمية صحيحة.' });
     }
 
+    const client = await pool.connect();
     try {
-      const snapshot = await getSnapshot();
-      const fromRow = snapshot.inventory.find(function (item) {
-        return String(item.product_id) === productId &&
-          Number(item.branch_id) === fromBranch;
-      });
-      const available = rowNum(fromRow && fromRow.quantity);
+      await client.query('begin');
+      const fromResult = await client.query(
+        'select quantity from inventory where branch_id=$1 and product_id=$2 for update',
+        [fromBranch, productId]
+      );
+      const available = rowNum(fromResult.rows[0] && fromResult.rows[0].quantity);
       if (available < quantity) {
         throw new Error('الكمية المتاحة ' + available + ' فقط.');
       }
 
-      const toRow = snapshot.inventory.find(function (item) {
-        return String(item.product_id) === productId &&
-          Number(item.branch_id) === toBranch;
-      });
-
-      await supabaseRequest(
-        'inventory?branch_id=eq.' + fromBranch + '&product_id=eq.' + encodeURIComponent(productId),
-        {
-          method: 'PATCH',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ quantity: available - quantity })
-        }
+      await client.query(
+        'update inventory set quantity=$3 where branch_id=$1 and product_id=$2',
+        [fromBranch, productId, available - quantity]
       );
-
-      if (toRow) {
-        await supabaseRequest(
-          'inventory?branch_id=eq.' + toBranch + '&product_id=eq.' + encodeURIComponent(productId),
-          {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({ quantity: rowNum(toRow.quantity) + quantity })
-          }
+      const toResult = await client.query(
+        'select quantity from inventory where branch_id=$1 and product_id=$2 for update',
+        [toBranch, productId]
+      );
+      if (toResult.rows[0]) {
+        await client.query(
+          'update inventory set quantity=$3 where branch_id=$1 and product_id=$2',
+          [toBranch, productId, rowNum(toResult.rows[0].quantity) + quantity]
         );
       } else {
-        await supabaseRequest('inventory', {
-          method: 'POST',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            branch_id: toBranch,
-            product_id: productId,
-            quantity: quantity
-          })
-        });
+        await client.query(
+          'insert into inventory (branch_id, product_id, quantity) values ($1,$2,$3)',
+          [toBranch, productId, quantity]
+        );
       }
 
+      await client.query('commit');
       res.json({ ok: true, message: 'تم نقل المخزون.' });
     } catch (error) {
+      await client.query('rollback').catch(function () {});
       res.status(400).json({ error: error.message });
+    } finally {
+      client.release();
     }
   });
 
@@ -354,19 +385,13 @@ module.exports = function registerInventoryRoutes(ctx) {
     if (!name) return res.status(400).json({ error: 'أدخل اسم الزبون.' });
 
     try {
-      await supabaseRequest('customers', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          name: name,
-          phone: String(input.phone || ''),
-          debt: Number(input.debt || 0)
-        })
-      });
+      await pool.query(
+        'insert into customers (name, phone, debt) values ($1,$2,$3)',
+        [name, String(input.phone || ''), Number(input.debt || 0)]
+      );
       res.json({ ok: true });
     } catch (error) {
       res.status(400).json({ error: error.message });
     }
   });
 };
-
