@@ -17,7 +17,11 @@
     if(!/(صندوق|كاش|نقد)/i.test(s))return null;
     let type=null;
     if(/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/i.test(s))type='in';
-    if(/(طلع|اخرج|سحب|سحبت|صرف من|اطلع)/i.test(s))type='out';
+    if(/(طلع|اخرج|سحب|سحبت|صرف من|اطلع|خذ|خد)/i.test(s))type='out';
+    if(!type&&/(سجل|سجّل|سجللي)/i.test(raw)){
+      if(/(?:الى|إلى)\s+(?:ال)?(?:صندوق|كاش|نقد)/i.test(raw))type='in';
+      else if(/من\s+(?:ال)?(?:صندوق|كاش|نقد)/i.test(raw))type='out';
+    }
     if(!type)return null;
     const nums=[...normalizeDigits(s).matchAll(/\d+(?:\.\d+)?/g)].map(m=>Number(m[0])).filter(n=>Number.isFinite(n)&&n>0);
     return {type,amount:nums.length?nums[0]:0,notes:raw};
@@ -35,20 +39,7 @@
     }
     const out=el('agentResult');if(out)out.textContent=message;
   }
-  window.runAgent=async function(){
-    const prompt=el('agentPrompt')?.value.trim()||'';
-    if(!prompt)return prevRun?prevRun():undefined;
-
-    const cash=cashMovement(prompt);
-    if(cash){
-      if(!(cash.amount>0))return showMessage('اذكر مبلغ حركة الصندوق.',null);
-      const action={type:'record_cash_movement',requiresConfirmation:true,payload:cash};
-      try{agentPendingAction=action}catch(_){ }
-      window.agentPendingAction=action;
-      return showMessage('تأكيد '+(cash.type==='in'?'إدخال ':'إخراج ')+cash.amount.toFixed(2)+' د.أ '+(cash.type==='in'?'إلى':'من')+' الصندوق؟',action);
-    }
-
-    if(!isOpsCommand(prompt))return prevRun?prevRun():undefined;
+  async function runOpsPreview(prompt){
     const button=el('agentRunButton');
     if(button){button.disabled=true;button.textContent='جاري فهم الأمر...'}
     try{
@@ -58,18 +49,34 @@
       if(action?.type==='open_customer_return'||action?.type==='open_customer_exchange'){
         showMessage(r.message,null);
         if(typeof openSection==='function')openSection('customers');
-        if(typeof window.openPartialReturnStatement==='function'){
-          setTimeout(()=>window.openPartialReturnStatement(action.payload.customerId),80);
-        }else if(typeof statement==='function'){
-          setTimeout(()=>statement(action.payload.customerId),80);
-        }
+        if(typeof window.openPartialReturnStatement==='function')setTimeout(()=>window.openPartialReturnStatement(action.payload.customerId),80);
+        else if(typeof statement==='function')setTimeout(()=>statement(action.payload.customerId),80);
         return;
       }
-      try{ agentPendingAction=action; }catch(_){ }
+      try{agentPendingAction=action}catch(_){ }
       window.agentPendingAction=action;
       showMessage(r.message,action);
     }catch(e){showMessage(e.message,null)}
     finally{if(button){button.disabled=false;button.textContent='فهم الأمر'}}
+  }
+  window.runAgent=async function(){
+    const prompt=el('agentPrompt')?.value.trim()||'';
+    if(!prompt)return prevRun?prevRun():undefined;
+
+    const cash=cashMovement(prompt);
+    if(cash){
+      // Numeric amounts can be confirmed instantly; spoken amounts go to the backend parser.
+      if(cash.amount>0){
+        const action={type:'record_cash_movement',requiresConfirmation:true,payload:cash};
+        try{agentPendingAction=action}catch(_){ }
+        window.agentPendingAction=action;
+        return showMessage('تأكيد '+(cash.type==='in'?'إدخال ':'إخراج ')+cash.amount.toFixed(2)+' د.أ '+(cash.type==='in'?'إلى':'من')+' الصندوق؟',action);
+      }
+      return runOpsPreview(prompt);
+    }
+
+    if(!isOpsCommand(prompt))return prevRun?prevRun():undefined;
+    return runOpsPreview(prompt);
   };
 
   window.confirmAgentAction=async function(){
