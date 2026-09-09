@@ -29,10 +29,16 @@
     if(id===4) return {id,label:'الفرع القديم'};
     return {id,label:s.replace(/\[BRANCH:\d+\]/ig,'').trim()||'متوفر'};
   }
+  function inventoryIsVisible(){
+    const body=document.getElementById('baleRows');
+    if(!body) return false;
+    const rect=body.getBoundingClientRect();
+    return !!(body.offsetParent!==null && rect.width>=0 && rect.height>=0);
+  }
   async function loadFullInventory(force){
     const now=Date.now();
     if(inventoryLoading) return;
-    if(!force && now-lastInventoryLoad<1200) return;
+    if(!force && now-lastInventoryLoad<2500) return;
     inventoryLoading=true;
     try{
       const r=await fetch('/api/v3/inventory/full?ts='+now,{cache:'no-store'});
@@ -107,7 +113,10 @@
         const original=renderAll;
         const wrapped=function(){
           const r=original.apply(this,arguments);
-          setTimeout(function(){ renderAggregatedInventory(); loadFullInventory(false); },0);
+          setTimeout(function(){
+            renderAggregatedInventory();
+            if(inventoryIsVisible()) loadFullInventory(false);
+          },0);
           return r;
         };
         wrapped.__inventoryAggregated=true; renderAll=wrapped;
@@ -115,9 +124,11 @@
     }catch(e){}
     document.addEventListener('click',function(e){
       const el=e.target&&e.target.closest?e.target.closest('button,a,[role="button"]'):null;
-      if(el && String(el.textContent||'').trim().includes('المخزون')) setTimeout(function(){loadFullInventory(true)},0);
+      if(el && String(el.textContent||'').trim().includes('المخزون')) {
+        setTimeout(function(){ renderAggregatedInventory(); loadFullInventory(true); },0);
+      }
     },true);
-    renderAggregatedInventory(); loadFullInventory(true);
+    renderAggregatedInventory();
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install); else install();
 })();
