@@ -4,7 +4,7 @@ module.exports = function registerItalianSaleRoutes(ctx) {
 
   const BATCH = 'ITALIAN-SALE-2026-09-09-V1';
   const SALE_ID = '91090919-0600-4a11-9000-000000000114';
-  const TOTAL_JOD = 19060;
+  const TOTAL_JOD = 19100;
   const TARGET_CUSTOMER = 'حمودة الايطالي';
 
   const ITEMS = [
@@ -150,7 +150,7 @@ module.exports = function registerItalianSaleRoutes(ctx) {
 
   function invoiceNotes() {
     const short = ITEMS.map(x => x.name + ' x' + x.qty).join(' | ');
-    return '[SALE_BATCH:' + BATCH + '] مبيعة حمودة الإيطالي آجل بالكامل، 114 بالة، إجمالي 19060 د.أ، مدفوع 0. ' + short;
+    return '[SALE_BATCH:' + BATCH + '] مبيعة حمودة الإيطالي آجل بالكامل، 114 بالة، إجمالي 19100 د.أ، مدفوع 0. ' + short;
   }
 
   app.get('/api/v2/sales/italian-2026-09-09/preview', async function (_req, res) {
