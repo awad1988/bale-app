@@ -1,18 +1,25 @@
 (function(){
   const originalRun=window.runAgent;
+  let pendingSalePrompt='';
   function el(id){return document.getElementById(id)}
   function money(v){return Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
-  function isStockSaleCommand(v){const s=String(v||'');return /(بيع|مبيع|بيعة|بيعه)/.test(s)}
+  function isSaleCommand(v){const s=String(v||'');return /(بيع|مبيع|بيعة|بيعه)/.test(s)}
+  function isShortFollowup(v){
+    const s=String(v||'').trim();
+    if(!s||s.length>80)return false;
+    return /(بالة|باله|بالات|كيلو|كغ|كريم|EX|اكسترا|إكسترا|A|B|بسعر|سعر|دفع|مدفوع|اجمالي|إجمالي|المجموع|مجموع|^[٠-٩0-9\s.]+$)/i.test(s);
+  }
   async function call(url,opt){const r=await fetch(url,{cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||'تعذر فهم المبيعة');return b}
   function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 
   function show(r){
     const out=el('agentResult');if(!out)return;
     if(r.needs_choice){
-      out.innerHTML=`<div style="background:#fff7ed;color:#7c2d12;border-radius:12px;padding:12px"><b>احتاج تحديد التصنيف</b><br>${safe(r.message)}<br>${(r.matches||[]).map(x=>`<div style="margin-top:6px">• ${safe(x.name_ar||x.name_en)} • ${safe(x.grade)} • ${Number(x.weight||0)} كغ • متاح ${Number(x.quantity||0)}</div>`).join('')}<button id="asOpenSales" class="btn wide" style="margin-top:12px">فتح شاشة المبيعات</button></div>`;
+      out.innerHTML=`<div style="background:#fff7ed;color:#7c2d12;border-radius:12px;padding:12px"><b>احتاج تحديد التصنيف</b><br>${safe(r.message)}<br>${(r.matches||[]).map(x=>`<div style="margin-top:6px">• ${safe(x.name_ar||x.name_en)} • ${safe(x.grade)} • ${Number(x.weight||0)} كغ • متاح ${Number(x.quantity||0)}</div>`).join('')}<div style="font-size:12px;margin-top:8px">تقدر تكتب فقط التصنيف المطلوب مثل: 40 كيلو EX</div><button id="asOpenSales" class="btn wide" style="margin-top:12px">فتح شاشة المبيعات</button></div>`;
       el('asOpenSales').onclick=()=>openSection('normalSalesSection');
       return;
     }
+    pendingSalePrompt='';
     const p=r.product||{};
     out.innerHTML=`<div style="background:#ecfdf5;color:#166534;border-radius:12px;padding:12px"><b>✅ فهمت المبيعة</b><br>الزبون: <b>${safe(r.customer?.name)}</b><br>الصنف: <b>${safe(p.name_ar||p.name_en)}</b><br>${safe(p.grade)} • ${Number(p.weight||0)} كغ<br>الكمية: <b>${Number(r.quantity||0)} بالة</b><br>السعر للبالة: <b>${money(r.unit_price_jod)} د.أ</b><br>إجمالي المبيعة: <b>${money(r.total_jod)} د.أ</b><br>الرصيد الحالي: ${money(r.customer?.current_debt)} د.أ<br>الرصيد المتوقع بعد المبيعة: <b>${money(r.expected_debt_after)} د.أ</b><div style="font-size:12px;margin-top:8px">لم يتم تسجيل أي شيء. التسجيل يتم فقط بعد فحص المبيعة وتأكيدك.</div><button id="asPrepareSale" class="btn wide" style="margin-top:12px">نقلها إلى شاشة المبيعات للفحص</button></div>`;
     el('asPrepareSale').onclick=()=>prepare(r);
@@ -52,13 +59,23 @@
   }
 
   window.runAgent=async function(){
-    const prompt=el('agentPrompt')?.value.trim()||'';
-    if(!isStockSaleCommand(prompt)) return typeof originalRun==='function'?originalRun():undefined;
+    const typed=el('agentPrompt')?.value.trim()||'';
+    const continuing=!!pendingSalePrompt&&isShortFollowup(typed)&&!isSaleCommand(typed);
+    if(!isSaleCommand(typed)&&!continuing) return typeof originalRun==='function'?originalRun():undefined;
+    const prompt=continuing?(pendingSalePrompt+' '+typed):typed;
     const button=el('agentRunButton');
     if(!prompt)return;
     if(button){button.disabled=true;button.textContent='جاري فهم المبيعة...'}
-    try{const r=await call('/api/v7/agent/sale-preview',{method:'POST',body:JSON.stringify({prompt})});show(r)}
-    catch(e){if(typeof window.showAgentMessage==='function')window.showAgentMessage(e.message);else if(el('agentResult'))el('agentResult').textContent=e.message}
+    try{
+      const r=await call('/api/v7/agent/sale-preview',{method:'POST',body:JSON.stringify({prompt})});
+      if(r.needs_choice) pendingSalePrompt=prompt;
+      show(r);
+    }
+    catch(e){
+      if(/اذكر عدد البالات|اذكر السعر|لم أتعرف على الصنف|اسم الزبون/.test(String(e.message||''))) pendingSalePrompt=prompt;
+      const suffix=pendingSalePrompt?'\nتقدر تكمل بالمعلومة الناقصة فقط بدون إعادة الأمر كامل.':'';
+      if(typeof window.showAgentMessage==='function')window.showAgentMessage(e.message+suffix);else if(el('agentResult'))el('agentResult').textContent=e.message+suffix;
+    }
     finally{if(button){button.disabled=false;button.textContent='فهم الأمر'}}
   };
 })();
