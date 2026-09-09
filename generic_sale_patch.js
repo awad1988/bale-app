@@ -23,6 +23,7 @@
       <div class="card">
         <label>الزبون</label><select id="gsCustomer"></select>
         <div class="row"><div><label>المدفوع الآن</label><input id="gsPaid" type="number" step="0.01" value="0"></div><div><label>ملاحظة</label><input id="gsNotes" placeholder="اختياري"></div></div>
+        <div style="margin-top:10px"><label>سعر صرف الدولار للشحنات بدون سعر صرف</label><input id="gsFx" type="number" step="0.001" value="0.709"><div class="small">يُستخدم فقط إذا كانت الشحنة لا تحتوي سعر صرف محفوظ.</div></div>
       </div>
       <div id="gsLines" class="list" style="margin-top:12px"></div>
       <button id="gsAddLine" class="btn secondary wide">+ إضافة صنف</button>
@@ -62,10 +63,20 @@
     host.querySelectorAll('.gsRemove').forEach((b,i)=>b.onclick=()=>removeLine(i));
     sync();
   }
-  function payload(){sync();return {batch_id:uid2(),customer_id:el('gsCustomer').value,paid_now:Number(el('gsPaid').value||0),notes:el('gsNotes').value||'',lines:STATE.rows}}
+  function payload(){sync();return {batch_id:uid2(),customer_id:el('gsCustomer').value,paid_now:Number(el('gsPaid').value||0),notes:el('gsNotes').value||'',fallback_fx:Number(el('gsFx').value||0.709),lines:STATE.rows}}
   let pending=null;
   async function preview(){
-    try{const p=payload();const r=await call('/api/v4/sales/preview',{method:'POST',body:JSON.stringify(p)});pending=p;el('gsResult').innerHTML=`<div style="padding:10px;border-radius:10px;background:#ecfdf5;color:#166534"><b>✅ المبيعة جاهزة</b><br>${r.customer.name}<br>الكمية: ${r.total_qty} بالة<br>الإجمالي: ${money(r.total_jod)} د.أ<br>المدفوع الآن: ${money(r.paid_now)} د.أ<br>الآجل: ${money(r.credit_jod)} د.أ<br>الرصيد بعد التسجيل: ${money(r.expected_debt_after)} د.أ</div>`;el('gsCommit').classList.remove('hidden')}catch(e){pending=null;el('gsCommit').classList.add('hidden');el('gsResult').innerHTML='<div style="color:#991b1b">'+e.message+'</div>'}
+    try{
+      const p=payload();
+      const [r,profit]=await Promise.all([
+        call('/api/v4/sales/preview',{method:'POST',body:JSON.stringify(p)}),
+        call('/api/v5/sales/profit-preview',{method:'POST',body:JSON.stringify(p)})
+      ]);
+      pending=p;
+      const fxNote=profit.fallback_fx_bales>0?`<br><span style="font-size:12px">ملاحظة: استُخدم سعر الصرف ${Number(profit.fallback_fx).toFixed(3)} لعدد ${profit.fallback_fx_bales} بالة لأن الشحنة لا تحتوي سعر صرف محفوظ.</span>`:'';
+      el('gsResult').innerHTML=`<div style="padding:10px;border-radius:10px;background:#ecfdf5;color:#166534"><b>✅ المبيعة جاهزة</b><br>${r.customer.name}<br>الكمية: ${r.total_qty} بالة<br>الإجمالي: ${money(r.total_jod)} د.أ<br>المدفوع الآن: ${money(r.paid_now)} د.أ<br>الآجل: ${money(r.credit_jod)} د.أ<br>الرصيد بعد التسجيل: ${money(r.expected_debt_after)} د.أ<hr style="border:0;border-top:1px solid #bbf7d0;margin:9px 0"><b>حساب الربح</b><br>شراء البالات: ${money(profit.purchase_total_jod)} د.أ (${money(profit.purchase_total_usd)} $)<br>جمرك ومصاريف: ${money(profit.customs_total_jod)} د.أ (${money(profit.customs_per_bale_jod)} للبالة)<br>إجمالي التكلفة: ${money(profit.total_cost_jod)} د.أ<br><b>الربح: ${money(profit.profit_jod)} د.أ</b><br>هامش الربح: ${Number(profit.profit_margin_pct||0).toFixed(1)}%${fxNote}</div>`;
+      el('gsCommit').classList.remove('hidden');
+    }catch(e){pending=null;el('gsCommit').classList.add('hidden');el('gsResult').innerHTML='<div style="color:#991b1b">'+e.message+'</div>'}
   }
   async function commit(){
     if(!pending)return;
