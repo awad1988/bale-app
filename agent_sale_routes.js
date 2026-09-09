@@ -59,8 +59,6 @@ module.exports = function registerAgentSaleRoutes(ctx){
 
   function parseQty(segment){
     const s=String(segment||'');
-    // JS word-boundary (\\b) does not work reliably after Arabic letters,
-    // so match Arabic bale words without it and use whitespace/punctuation lookahead instead.
     const bale=s.match(/(?:عدد\s*)?(\d+)\s*(?:باله|بالات|بالة)(?=\s|[،؛,.!?]|$)/i);
     if(bale) return Number(bale[1]);
     const count=s.match(/(?:^|\s)عدد\s*(\d+)(?=\s|[،؛,.!?]|$)/i);
@@ -82,20 +80,38 @@ module.exports = function registerAgentSaleRoutes(ctx){
 
   function matchProduct(segment,groups){
     const ignored=new Set(['سجل','بيع','مبيع','مبيعه','بيعه','فاتوره','فاتورة','باله','بالات','بالة','بسعر','سعر','بقيمة','بقمه','قيمه','قيمة','للباله','للبالة','دينار','اجمالي','الاجمالي','المجموع','مجموع','وزيد','كمان','وكمان','عدد']);
-    const tokens=norm(segment).split(' ').map(x=>x==='EXTRA'?'EX':x).filter(x=>x.length>1&&!ignored.has(x)&&!/^[0-9.]+$/.test(x));
+    const normalizedSegment=norm(segment);
+    const tokens=normalizedSegment.split(' ').map(x=>x==='EXTRA'?'EX':x).filter(x=>x.length>1&&!ignored.has(x)&&!/^[0-9.]+$/.test(x));
+    const asksLadyJacket=/(جاكيت\s+ستاتي|جاكيت\s+نسائي|ستاتي\s+جاكيت|نسائي\s+جاكيت)/i.test(String(segment||''));
+    const asksMenJacket=/(جاكيت\s+رجالي|رجالي\s+جاكيت)/i.test(String(segment||''));
+    const asksAnorak=/انوراك|نفخ/i.test(String(segment||''));
     const scored=groups.map(g=>{
+      const english=norm(g.name_en||'');
+      const arabic=norm(g.name_ar||'');
       const text=norm([g.name_ar,g.name_en,g.grade,g.weight].join(' '));
       let score=0;
       for(const token of tokens){
         if(text.includes(token)) score+=token.length>=4?2:1;
       }
-      if(/\b(?:EX|EXTRA)\b/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=3;
-      if(/(?:اكسترا|إكسترا)/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=3;
-      if(/كريم/i.test(segment)&&String(g.grade).toLowerCase()==='cream') score+=3;
-      if(/(?:^|\s)B(?:\s|$)/i.test(segment)&&g.grade==='B') score+=2;
-      if(/(?:^|\s)A(?:\s|$)/i.test(segment)&&g.grade==='A') score+=2;
+      if(/\b(?:EX|EXTRA)\b/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=5;
+      if(/(?:اكسترا|إكسترا)/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=5;
+      if(/كريم/i.test(segment)&&String(g.grade).toLowerCase()==='cream') score+=5;
+      if(/(?:^|\s)B(?:\s|$)/i.test(segment)&&g.grade==='B') score+=3;
+      if(/(?:^|\s)A(?:\s|$)/i.test(segment)&&g.grade==='A') score+=3;
       const wm=segment.match(/(20|25|40)\s*(?:كغ|كيلو)/i);
-      if(wm&&Number(wm[1])===Number(g.weight)) score+=3;
+      if(wm&&Number(wm[1])===Number(g.weight)) score+=4;
+
+      // Business aliases: "جاكيت ستاتي" means the LADY ANORAK / جاكيت نفخ ستاتي family,
+      // and "جاكيت رجالي" prefers MEN/MAN ANORAK when the user did not name another jacket type.
+      if(asksLadyJacket){
+        if(/LADY/.test(english) && (/ANORAK/.test(english)||/نفخ\s+ستاتي/.test(arabic))) score+=12;
+        if(/SKIRT|SWEATER|BLOUSE|DRESS|SCARF|SKECHER|SKETCHER/.test(english)) score-=12;
+      }
+      if(asksMenJacket){
+        if(/MEN|MAN/.test(english) && (/ANORAK/.test(english)||/نفخ\s+رجالي/.test(arabic))) score+=10;
+        if(/LADY|WOMAN|CHILD|BOY|BABY/.test(english)) score-=8;
+      }
+      if(asksAnorak && /ANORAK/.test(english)) score+=6;
       return {g,score};
     }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||b.g.quantity-a.g.quantity);
     if(!scored.length) return {error:'لم أتعرف على الصنف: '+segment};
