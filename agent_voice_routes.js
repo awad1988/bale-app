@@ -35,6 +35,9 @@ module.exports = function registerAgentVoiceRoutes(ctx){
       const body=await response.json().catch(()=>({}));
       if(!response.ok){
         const msg=body?.error?.message||'تعذر تحويل الصوت إلى نص.';
+        if(/quota|rate limit|resource_exhausted|too many requests|429/i.test(msg)) {
+          throw new Error('خدمة فهم الصوت وصلت حد الاستخدام مؤقتًا. اكتب الأمر أو جرّب بعد قليل.');
+        }
         throw new Error(msg);
       }
       const text=(body?.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join(' ').trim();
