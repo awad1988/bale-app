@@ -11,20 +11,24 @@
 
   function movementHtml(m,index){
     const sale=m.type==='sale';
-    const title=sale?'مبيعة':'دفعة';
-    const sign=sale?'+':'−';
+    const negative=Number(m.amount||0)<0;
+    const reversal=sale&&negative;
+    const title=reversal?'عكس مبيعة':!sale&&negative?'عكس دفعة':sale?'مبيعة':'دفعة';
+    const sign=sale?(negative?'−':'+'):(negative?'+':'−');
     const lines=(m.lines||[]).map(lineHtml).join('');
     const hasLines=!!lines;
     const detailsId='csDetails_'+index;
     return `<div class="item" style="margin-top:10px">
-      <div class="top"><b>${title}</b><b>${sign}${money(m.amount)} د.أ</b></div>
+      <div class="top"><b>${title}</b><b>${sign}${money(Math.abs(Number(m.amount||0)))} د.أ</b></div>
       <div class="small">التاريخ: ${dateFmt(m.date)}</div>
       <div class="small">الرصيد بعد الحركة: <b>${money(m.balance_after)} د.أ</b></div>
+      ${m.reversed?'<div class="small" style="color:#166534;font-weight:700;margin-top:6px">تم عكس هذه المبيعة وإرجاع مخزونها</div>':''}
       ${hasLines?`<button class="btn secondary wide csToggle" data-target="${detailsId}" style="margin-top:10px">عرض تفاصيل الفاتورة</button><div id="${detailsId}" class="hidden" style="margin-top:8px"><b style="font-size:13px">تفاصيل الفاتورة</b>${lines}</div>`:''}
+      ${m.can_reverse?`<button class="btn danger wide csReverse" data-sale-id="${esc(m.id)}" style="margin-top:10px">عكس المبيعة وإرجاع البالات</button>`:''}
     </div>`;
   }
 
-  function bindToggles(){
+  function bindToggles(cid){
     document.querySelectorAll('.csToggle').forEach(btn=>{
       btn.onclick=()=>{
         const target=document.getElementById(btn.dataset.target);
@@ -32,6 +36,19 @@
         const willOpen=target.classList.contains('hidden');
         target.classList.toggle('hidden');
         btn.textContent=willOpen?'إخفاء تفاصيل الفاتورة':'عرض تفاصيل الفاتورة';
+      };
+    });
+    document.querySelectorAll('.csReverse').forEach(btn=>{
+      btn.onclick=async()=>{
+        if(!confirm('تأكيد عكس المبيعة؟ سيتم تخفيض رصيد الزبون وإرجاع البالات للمخزون، وستبقى حركة العكس موثقة.'))return;
+        btn.disabled=true;btn.textContent='جاري عكس المبيعة...';
+        try{
+          const response=await fetch('/api/v6/sales/'+encodeURIComponent(btn.dataset.saleId)+'/reverse',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:'{}'});
+          const body=await response.json().catch(()=>({}));
+          if(!response.ok)throw new Error(body.error||'تعذر عكس المبيعة');
+          if(typeof refresh==='function')await refresh();
+          await openDetailedStatement(body.customer_id||cid);
+        }catch(e){alert(e.message);btn.disabled=false;btn.textContent='عكس المبيعة وإرجاع البالات'}
       };
     });
   }
@@ -51,7 +68,7 @@
         ${(r.movements||[]).map((m,i)=>movementHtml(m,i)).join('')||'<div class="muted">لا توجد حركات مسجلة.</div>'}
         <button class="btn secondary wide" id="csBack" style="margin-top:14px">رجوع للزبائن</button>
       </div>`;
-      bindToggles();
+      bindToggles(cid);
       document.getElementById('csBack').onclick=()=>{ if(typeof renderAll==='function') renderAll(); };
     }catch(e){
       list.innerHTML=`<div class="card"><div style="color:#991b1b">${esc(e.message)}</div><button class="btn secondary wide" id="csBackErr" style="margin-top:12px">رجوع</button></div>`;
