@@ -1,6 +1,8 @@
 (function(){
   let fullInventory=null;
   const TOTAL_CUSTOMS_EXPENSES_JOD=48000;
+  const CUSTOMS_ALLOCATION_BALES=2773;
+  const FIXED_EXPENSE_PER_BALE=TOTAL_CUSTOMS_EXPENSES_JOD/CUSTOMS_ALLOCATION_BALES;
   function val(obj,a,b){ return obj && (obj[a] != null ? obj[a] : obj[b]); }
   function esc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
   function normName(v){
@@ -62,7 +64,7 @@
     }
     const rows=Array.from(groups.values()).sort((a,b)=>(a.nameAr||a.nameEn).localeCompare(b.nameAr||b.nameEn,'ar'));
     const totalQty=rows.reduce((sum,g)=>sum+g.qty,0);
-    const expensePerBale=totalQty ? TOTAL_CUSTOMS_EXPENSES_JOD/totalQty : 0;
+    const expensePerBale=FIXED_EXPENSE_PER_BALE;
     const table=body.closest('table');
     if(table){
       const hr=table.querySelector('thead tr');
@@ -82,7 +84,7 @@
         table.parentElement.insertBefore(summary,table);
       }
       summary.innerHTML='إجمالي المعروض: '+totalQty.toLocaleString('en-US')+' بالة • '+rows.length.toLocaleString('en-US')+' صنف/تصنيف'
-        +'<br>الجمرك والمصاريف: '+TOTAL_CUSTOMS_EXPENSES_JOD.toLocaleString('en-US')+' د.أ • حصة البالة: '+expensePerBale.toFixed(2)+' د.أ';
+        +'<br>الجمرك والمصاريف: '+TOTAL_CUSTOMS_EXPENSES_JOD.toLocaleString('en-US')+' د.أ • حصة البالة الأصلية: '+expensePerBale.toFixed(2)+' د.أ';
     }
     body.innerHTML=rows.map(g=>{
       const avgBuy=g.qty?g.buySum/g.qty:0;
