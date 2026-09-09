@@ -1,6 +1,7 @@
 module.exports = function registerAgentOpsRoutes(ctx){
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
+  const OPS_VERSION='2026-09-09-number-words-v2';
 
   function norm(v){
     return String(v||'').trim().toLowerCase()
@@ -38,15 +39,15 @@ module.exports = function registerAgentOpsRoutes(ctx){
     'ثلاثين':30,'ثلاثون':30,
     'اربعين':40,'أربعين':40,
     'خمسين':50,'ستين':60,'سبعين':70,'ثمانين':80,'تمانين':80,'تسعين':90,
-    'ميه':100,'مية':100,'مئه':100,'مئة':100,'مائه':100,'مائة':100,
-    'ميتين':200,'مئتين':200,'مائتين':200,
-    'ثلاثميه':300,'ثلاثمية':300,'ثلاثمئه':300,
-    'اربعمية':400,'اربعمئه':400,'اربعميه':400,
-    'خمسميه':500,'خمسمية':500,'خمسمئه':500,
-    'ستميه':600,'ستمية':600,'ستمئه':600,
-    'سبعميه':700,'سبعمية':700,'سبعمئه':700,
-    'ثمانميه':800,'ثمانمية':800,'تمانميه':800,'تمانمية':800,
-    'تسعميه':900,'تسعمية':900,'تسعمئه':900
+    'ميه':100,'مية':100,'مئه':100,'مئة':100,'مائه':100,'مائة':100,'مايه':100,'ماية':100,
+    'ميتين':200,'مئتين':200,'مائتين':200,'مايتين':200,
+    'ثلاثميه':300,'ثلاثمية':300,'ثلاثمئه':300,'ثلاثمائة':300,
+    'اربعمية':400,'اربعمئه':400,'اربعميه':400,'اربعمائة':400,
+    'خمسميه':500,'خمسمية':500,'خمسمئه':500,'خمسمائة':500,
+    'ستميه':600,'ستمية':600,'ستمئه':600,'ستمائة':600,
+    'سبعميه':700,'سبعمية':700,'سبعمئه':700,'سبعمائة':700,
+    'ثمانميه':800,'ثمانمية':800,'تمانميه':800,'تمانمية':800,'ثمانمائة':800,
+    'تسعميه':900,'تسعمية':900,'تسعمئه':900,'تسعمائة':900
   }));
 
   function tokenNumber(token){
@@ -61,8 +62,6 @@ module.exports = function registerAgentOpsRoutes(ctx){
       .replace(/[،,؛;:.!?()\[\]{}]/g,' ')
       .replace(/\s+/g,' ').trim();
     if(!s)return 0;
-
-    // Common multi-word forms first.
     const replacements=[
       [/احد\s+عشر/g,'احدعشر'],[/اثنا\s+عشر|اثني\s+عشر/g,'اثنعش'],
       [/ثلاث(?:ه)?\s+عشر/g,'ثلاثتعش'],[/اربع(?:ه)?\s+عشر/g,'اربعتعش'],
@@ -74,32 +73,18 @@ module.exports = function registerAgentOpsRoutes(ctx){
 
     const tokens=s.split(' ');
     let total=0,current=0,seen=false;
-    for(let raw of tokens){
+    for(const raw of tokens){
       if(!raw)continue;
       let t=raw;
       if(t.length>1&&t[0]==='و')t=t.slice(1);
-
-      if(['الف','ألف'].includes(raw)||t==='الف'){
-        current=(current||1)*1000;total+=current;current=0;seen=true;continue;
-      }
-      if(['الفين','ألفين'].includes(raw)||t==='الفين'){
-        total+=2000;current=0;seen=true;continue;
-      }
-      if(['الاف','آلاف'].includes(raw)||t==='الاف'){
-        current=(current||1)*1000;total+=current;current=0;seen=true;continue;
-      }
-      if(raw==='مليون'||t==='مليون'){
-        current=(current||1)*1000000;total+=current;current=0;seen=true;continue;
-      }
-      if(raw==='مليونين'||t==='مليونين'){
-        total+=2000000;current=0;seen=true;continue;
-      }
-
+      if(t==='الف'){current=(current||1)*1000;total+=current;current=0;seen=true;continue;}
+      if(t==='الفين'){total+=2000;current=0;seen=true;continue;}
+      if(t==='الاف'){current=(current||1)*1000;total+=current;current=0;seen=true;continue;}
+      if(t==='مليون'){current=(current||1)*1000000;total+=current;current=0;seen=true;continue;}
+      if(t==='مليونين'){total+=2000000;current=0;seen=true;continue;}
       const n=tokenNumber(raw);
       if(n!==null){current+=n;seen=true;continue;}
-
-      // Stop after a number phrase when normal business words begin.
-      if(seen&&/(دينار|دنانير|ليره|ليرة|الصندوق|صندوق|كاش|نقد|من|الى|إلى)/.test(raw))break;
+      if(seen&&/(دينار|دنانير|ليره|ليرة|الصندوق|صندوق|كاش|نقد|من|الى)/.test(raw))break;
     }
     return seen?total+current:0;
   }
@@ -120,12 +105,13 @@ module.exports = function registerAgentOpsRoutes(ctx){
       .find(x=>norm(x.name)&&text.includes(norm(x.name)))||null;
   }
 
+  app.get('/api/v11/agent/ops-version',(_req,res)=>res.json({ok:true,version:OPS_VERSION}));
+
   app.post('/api/v11/agent/ops-preview', async function(req,res){
     try{
       const prompt=String(req.body?.prompt||'').trim();
       if(!prompt) throw new Error('اكتب الأمر أولاً.');
       const text=norm(prompt);
-
       const isReturn=/(ارجاع|ارجع|رجع|مرتجع|استرجاع)/.test(text);
       const isExchange=/(تبديل|بدل|استبدال)/.test(text);
       const isCashIn=/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت).*?(صندوق|كاش|نقد)|(صندوق|كاش|نقد).*?(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/.test(text);
@@ -135,29 +121,17 @@ module.exports = function registerAgentOpsRoutes(ctx){
         const list=await customers();
         const customer=mentionedCustomer(list,prompt);
         if(!customer) throw new Error('اذكر اسم الزبون المسجل حتى أفتح مبيعاته للإرجاع أو التبديل.');
-        return res.json({
-          ok:true,
-          action:{
-            type:isExchange?'open_customer_exchange':'open_customer_return',
-            requiresConfirmation:false,
-            payload:{customerId:customer.id,customerName:customer.name}
-          },
-          message:'سأفتح حساب '+customer.name+' على المبيعات حتى تختار البالة أو الكمية المراد '+(isExchange?'تبديلها.':'إرجاعها.')
-        });
+        return res.json({ok:true,version:OPS_VERSION,action:{type:isExchange?'open_customer_exchange':'open_customer_return',requiresConfirmation:false,payload:{customerId:customer.id,customerName:customer.name}},message:'سأفتح حساب '+customer.name+' على المبيعات حتى تختار البالة أو الكمية المراد '+(isExchange?'تبديلها.':'إرجاعها.')});
       }
 
       if(isCashIn||isCashOut){
         const amount=amountFrom(prompt);
-        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مية دينار.');
+        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار. [NUM-V2]');
         const type=isCashIn?'in':'out';
-        return res.json({
-          ok:true,
-          action:{type:'record_cash_movement',requiresConfirmation:true,payload:{type,amount,notes:prompt}},
-          message:'تأكيد '+(type==='in'?'إدخال ':'إخراج ')+amount.toFixed(2)+' د.أ '+(type==='in'?'إلى':'من')+' الصندوق؟'
-        });
+        return res.json({ok:true,version:OPS_VERSION,action:{type:'record_cash_movement',requiresConfirmation:true,payload:{type,amount,notes:prompt}},message:'تأكيد '+(type==='in'?'إدخال ':'إخراج ')+amount.toFixed(2)+' د.أ '+(type==='in'?'إلى':'من')+' الصندوق؟'});
       }
 
-      return res.json({ok:false,passThrough:true});
-    }catch(e){res.status(400).json({error:e.message})}
+      return res.json({ok:false,version:OPS_VERSION,passThrough:true});
+    }catch(e){res.status(400).json({error:e.message,version:OPS_VERSION})}
   });
 };
