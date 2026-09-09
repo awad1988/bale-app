@@ -2,6 +2,34 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
 
+  const ITALIAN_BATCH = 'ITALIAN-SALE-2026-09-09-V1';
+  const ITALIAN_LINES = [
+    { name:'JOGGING WCR', grade:'Cream', weight:25, quantity:10, line_total_jod:1875 },
+    { name:'MEDIUM RUMMAGE WCR', grade:'Cream', weight:25, quantity:12, line_total_jod:2250 },
+    { name:'HOODED WCR', grade:'Cream', weight:25, quantity:6, line_total_jod:1125 },
+    { name:'LADY WINTER DRESS WCR', grade:'Cream', weight:25, quantity:5, line_total_jod:925 },
+    { name:'MEN ANORAK WCR', grade:'Cream', weight:20, quantity:7, line_total_jod:1050 },
+    { name:'MEN WINTER SHIRT WCR', grade:'Cream', weight:25, quantity:1, line_total_jod:185 },
+    { name:'LOC WCR', grade:'Cream', weight:20, quantity:4, line_total_jod:600 },
+    { name:'BOY ANORAK WCR', grade:'Cream', weight:20, quantity:7, line_total_jod:1050 },
+    { name:'LADY ANORAK WCR', grade:'Cream', weight:20, quantity:3, line_total_jod:450 },
+    { name:'LADY WINTER SKIRT WCR', grade:'Cream', weight:40, quantity:4, line_total_jod:1200 },
+    { name:'LADY FLANNEL BLOUSE WCR', grade:'Cream', weight:25, quantity:3, line_total_jod:560 },
+    { name:'LADY WINTER ABAYA', grade:'A', weight:25, quantity:5, line_total_jod:1250 },
+    { name:'LADY WINTER BLOUSE WCR', grade:'Cream', weight:25, quantity:5, line_total_jod:625 },
+    { name:'BODY T SHIRT L/S WCR', grade:'Cream', weight:25, quantity:5, line_total_jod:625 },
+    { name:'BABY ANORAK 40KG', grade:'A', weight:40, quantity:4, line_total_jod:640 },
+    { name:'BOY ANORAK EX', grade:'A', weight:40, quantity:4, line_total_jod:640 },
+    { name:'CHILDREN HOODED', grade:'A', weight:40, quantity:8, line_total_jod:1200 },
+    { name:'LRC JACKET EX', grade:'A', weight:40, quantity:2, line_total_jod:260 },
+    { name:'LADY LONG FASHION WINTER JACKET', grade:'A', weight:40, quantity:3, line_total_jod:450 },
+    { name:'MIX CROP TOP HOODED', grade:'A', weight:40, quantity:2, line_total_jod:300 },
+    { name:'DUBLANKA JACKET EX', grade:'A', weight:40, quantity:4, line_total_jod:560 },
+    { name:'FARU JACKET EX', grade:'A', weight:40, quantity:4, line_total_jod:560 },
+    { name:'LEGGING PREMIUM', grade:'A', weight:40, quantity:2, line_total_jod:320 },
+    { name:'OVERALL FLEECE', grade:'A', weight:40, quantity:4, line_total_jod:400 }
+  ];
+
   async function fetchAll(basePath) {
     const out = [];
     const pageSize = 1000;
@@ -17,6 +45,10 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
 
   function parseSaleLines(notes) {
     const text = String(notes || '');
+    if (text.includes('[SALE_BATCH:' + ITALIAN_BATCH + ']')) {
+      return ITALIAN_LINES.map(x => ({ ...x }));
+    }
+
     const marker = 'الأصناف:';
     const idx = text.indexOf(marker);
     if (idx === -1) return [];
