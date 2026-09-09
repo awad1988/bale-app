@@ -11,20 +11,23 @@
 
   function movementHtml(m,index){
     const sale=m.type==='sale';
+    const returned=m.type==='return';
     const negative=Number(m.amount||0)<0;
     const reversal=sale&&negative;
-    const title=reversal?'عكس مبيعة':!sale&&negative?'عكس دفعة':sale?'مبيعة':'دفعة';
-    const sign=sale?(negative?'−':'+'):(negative?'+':'−');
+    const title=returned?'مرتجع مبيعة':reversal?'عكس مبيعة':!sale&&negative?'عكس دفعة':sale?'مبيعة':'دفعة';
+    const sign=returned?'−':sale?(negative?'−':'+'):(negative?'+':'−');
+    const shownAmount=returned?Number(m.returned_total||0):Math.abs(Number(m.amount||0));
     const lines=(m.lines||[]).map(lineHtml).join('');
     const hasLines=!!lines;
     const detailsId='csDetails_'+index;
     return `<div class="item" style="margin-top:10px">
-      <div class="top"><b>${title}</b><b>${sign}${money(Math.abs(Number(m.amount||0)))} د.أ</b></div>
+      <div class="top"><b>${title}</b><b>${sign}${money(shownAmount)} د.أ</b></div>
       <div class="small">التاريخ: ${dateFmt(m.date)}</div>
       <div class="small">الرصيد بعد الحركة: <b>${money(m.balance_after)} د.أ</b></div>
-      ${m.reversed?'<div class="small" style="color:#166534;font-weight:700;margin-top:6px">تم عكس هذه المبيعة وإرجاع مخزونها</div>':''}
+      ${returned?`<div class="small" style="margin-top:6px">تخفيض من الدين: <b>${money(m.amount)} د.أ</b>${Number(m.cash_refund||0)>0?` • مردود كاش: <b>${money(m.cash_refund)} د.أ</b>`:''}</div>`:''}
+      ${m.returned?'<div class="small" style="color:#166534;font-weight:700;margin-top:6px">تم تسجيل مرتجع لهذه المبيعة وإرجاع مخزونها</div>':''}
       ${hasLines?`<button class="btn secondary wide csToggle" data-target="${detailsId}" style="margin-top:10px">عرض تفاصيل الفاتورة</button><div id="${detailsId}" class="hidden" style="margin-top:8px"><b style="font-size:13px">تفاصيل الفاتورة</b>${lines}</div>`:''}
-      ${m.can_reverse?`<button class="btn danger wide csReverse" data-sale-id="${esc(m.id)}" style="margin-top:10px">عكس المبيعة وإرجاع البالات</button>`:''}
+      ${m.can_reverse?`<button class="btn danger wide csReverse" data-sale-id="${esc(m.id)}" style="margin-top:10px">تسجيل مرتجع وإرجاع البالات</button>`:''}
     </div>`;
   }
 
@@ -40,15 +43,15 @@
     });
     document.querySelectorAll('.csReverse').forEach(btn=>{
       btn.onclick=async()=>{
-        if(!confirm('تأكيد عكس المبيعة؟ سيتم تخفيض رصيد الزبون وإرجاع البالات للمخزون، وستبقى حركة العكس موثقة.'))return;
-        btn.disabled=true;btn.textContent='جاري عكس المبيعة...';
+        if(!confirm('تأكيد تسجيل المرتجع؟ ستعود البالات للمخزون، وينخفض الدين أو يُسجل رد كاش حسب طريقة دفع المبيعة.'))return;
+        btn.disabled=true;btn.textContent='جاري تسجيل المرتجع...';
         try{
           const response=await fetch('/api/v6/sales/'+encodeURIComponent(btn.dataset.saleId)+'/reverse',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:'{}'});
           const body=await response.json().catch(()=>({}));
           if(!response.ok)throw new Error(body.error||'تعذر عكس المبيعة');
           if(typeof refresh==='function')await refresh();
           await openDetailedStatement(body.customer_id||cid);
-        }catch(e){alert(e.message);btn.disabled=false;btn.textContent='عكس المبيعة وإرجاع البالات'}
+        }catch(e){alert(e.message);btn.disabled=false;btn.textContent='تسجيل مرتجع وإرجاع البالات'}
       };
     });
   }
@@ -63,7 +66,7 @@
       list.innerHTML=`<div class="card">
         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h2 style="margin:0">كشف حساب ${esc(c.name)}</h2><div class="small">${esc(c.phone||'')}</div></div><div style="text-align:left"><div class="small">الرصيد الحالي</div><b style="font-size:22px">${money(c.current_debt)} د.أ</b></div></div>
         <div class="row" style="margin-top:14px"><div class="card" style="margin:0"><div class="small">الرصيد الافتتاحي</div><b>${money(r.opening_debt)} د.أ</b></div><div class="card" style="margin:0"><div class="small">إجمالي المبيعات</div><b>${money(r.total_sales)} د.أ</b></div></div>
-        <div class="card" style="margin-top:10px"><div class="small">إجمالي الدفعات</div><b>${money(r.total_payments)} د.أ</b></div>
+        <div class="row" style="margin-top:10px"><div class="card" style="margin:0"><div class="small">إجمالي الدفعات</div><b>${money(r.total_payments)} د.أ</b></div><div class="card" style="margin:0"><div class="small">إجمالي المرتجعات</div><b>${money(r.total_returns)} د.أ</b></div></div>
         <h3 style="margin-top:18px">حركة الحساب</h3>
         ${(r.movements||[]).map((m,i)=>movementHtml(m,i)).join('')||'<div class="muted">لا توجد حركات مسجلة.</div>'}
         <button class="btn secondary wide" id="csBack" style="margin-top:14px">رجوع للزبائن</button>
