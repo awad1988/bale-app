@@ -2,7 +2,7 @@
   const originalRun=window.runAgent;
   function el(id){return document.getElementById(id)}
   function money(v){return Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
-  function isStockSaleCommand(v){const s=String(v||'');return /(بيع|مبيع|بيعة|بيعه)/.test(s)&&/(بالة|باله|بالات)/.test(s)}
+  function isStockSaleCommand(v){const s=String(v||'');return /(بيع|مبيع|بيعة|بيعه)/.test(s)}
   async function call(url,opt){const r=await fetch(url,{cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||'تعذر فهم المبيعة');return b}
   function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 
