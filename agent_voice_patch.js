@@ -1,7 +1,6 @@
 (function(){
   let recorder=null,stream=null,chunks=[],timer=null,recording=false;
   function el(id){return document.getElementById(id)}
-  function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
   async function call(url,opt){const r=await fetch(url,{cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||'تعذر تنفيذ العملية');return b}
   function setStatus(text,bad){const s=el('agentVoiceStatus');if(s){s.textContent=text||'';s.style.color=bad?'#fecaca':'#ffffffcc'}}
   function install(){
@@ -20,13 +19,13 @@
       stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
       const candidates=['audio/mp4','audio/webm;codecs=opus','audio/webm'];
       let mime='';for(const x of candidates){try{if(MediaRecorder.isTypeSupported(x)){mime=x;break}}catch(_){}}
-      recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);chunks=[];recording=true;
+      recorder=new MediaRecorder(stream,mime?{mimeType:mime,audioBitsPerSecond:64000}:{audioBitsPerSecond:64000});chunks=[];recording=true;
       const btn=el('agentVoiceButton');btn.textContent='⏹ إيقاف التسجيل';btn.style.background='#fee2e2';btn.style.color='#991b1b';
       setStatus('🎙️ اسمعك الآن… احكي الأمر بشكل طبيعي.');
       recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
       recorder.onstop=transcribe;
       recorder.start(250);
-      timer=setTimeout(()=>stop(),45000);
+      timer=setTimeout(()=>stop(),20000);
     }catch(e){setStatus(e.name==='NotAllowedError'?'اسمح للمتصفح باستخدام الميكروفون ثم جرّب مرة ثانية.':e.message,true);cleanup()}
   }
   function stop(){
@@ -41,7 +40,7 @@
     try{
       const blob=new Blob(chunks,{type:recorder?.mimeType||chunks[0]?.type||'audio/mp4'});cleanup();
       if(blob.size<500)throw new Error('التسجيل قصير جدًا.');
-      if(blob.size>7*1024*1024)throw new Error('التسجيل طويل جدًا. خليه أقل من 45 ثانية.');
+      if(blob.size>650*1024)throw new Error('التسجيل طويل جدًا. جرّب أمرًا أقصر.');
       const audio_base64=await toBase64(blob);
       const r=await call('/api/v8/agent/transcribe',{method:'POST',body:JSON.stringify({mime_type:blob.type||'audio/mp4',audio_base64})});
       const prompt=el('agentPrompt');if(prompt)prompt.value=r.text;
