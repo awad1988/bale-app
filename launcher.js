@@ -49,7 +49,7 @@ Module.prototype._compile = function(content, filename){
       .replaceAll(".replace(/s*[BALE_ID:[^]]+]s*/g", ".replace(/\\s*\\[BALE_ID:[^\\]]+\\]\\s*/g")
       .replace(
         "app.get('*', (_req, res) => {",
-        "require('./inventory_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./inventory_full_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./italian_sale_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./generic_sales_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./sales_profit_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\napp.get('*', (_req, res) => {"
+        "require('./inventory_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./inventory_full_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./italian_sale_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./generic_sales_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./sales_profit_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./shipment_fx_defaults')({ app, supabaseRequest, rowNum, normalizeArabic });\napp.get('*', (_req, res) => {"
       );
   }
   return originalCompile.call(this, content, filename);
