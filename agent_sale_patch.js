@@ -8,10 +8,10 @@
   function isStatementCommand(v){const s=String(v||'');return /(كشف\s*(?:حساب)?|حساب\s+الزبون|افتح\s+(?:لي\s+)?كشف|اعرض\s+(?:لي\s+)?كشف)/i.test(s)}
   function isShortFollowup(v){
     const s=String(v||'').trim();
-    if(!s||s.length>180)return false;
+    if(!s||s.length>220)return false;
     if(isStatementCommand(s))return false;
     if(invoiceMode)return true;
-    return /(بالة|باله|بالات|كيلو|كغ|كريم|EX|اكسترا|إكسترا|A|B|بسعر|سعر|دفع|مدفوع|اجمالي|إجمالي|المجموع|مجموع|^[٠-٩0-9\s.]+$)/i.test(s);
+    return /(بالة|باله|بالات|كيلو|كغ|كريم|EX|Extra|اكسترا|إكسترا|A|B|بسعر|سعر|بقيمة|قيمة|دفع|مدفوع|اجمالي|إجمالي|المجموع|مجموع|عدد|^[٠-٩0-9\s.]+$)/i.test(s);
   }
   function clearSaleContext(){invoiceMode=false;pendingSalePrompt='';}
   async function call(url,opt){const r=await fetch(url,{cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||'تعذر فهم المبيعة');return b}
@@ -26,16 +26,17 @@
 
   function show(r,fullPrompt){
     const out=el('agentResult');if(!out)return;
+    const providerNote=r.provider==='gemini'?'<div style="font-size:12px;margin-bottom:7px;opacity:.8">🧠 فهم عبر Gemini</div>':'';
     if(r.needs_more){
       invoiceMode=!!r.invoice_mode;
       pendingSalePrompt=fullPrompt||pendingSalePrompt;
-      out.innerHTML=`<div style="background:#fff7ed;color:#7c2d12;border-radius:12px;padding:12px"><b>${invoiceMode?'فاتورة قيد التجهيز':'المبيعة ناقصة معلومة'}</b><br>${safe(r.message)}${linesHtml(r.lines)}<div style="font-size:12px;margin-top:8px">اكتب المعلومة أو الصنف التالي فقط، وأنا أكمل نفس الفاتورة.</div></div>`;
+      out.innerHTML=`<div style="background:#fff7ed;color:#7c2d12;border-radius:12px;padding:12px">${providerNote}<b>${invoiceMode?'فاتورة قيد التجهيز':'المبيعة ناقصة معلومة'}</b><br>${safe(r.message)}${linesHtml(r.lines)}<div style="font-size:12px;margin-top:8px">اكتب أو احكي المعلومة أو الصنف التالي فقط، وأنا أكمل نفس الفاتورة.</div></div>`;
       return;
     }
     if(r.needs_choice){
       invoiceMode=!!r.invoice_mode||invoiceMode;
       pendingSalePrompt=fullPrompt||pendingSalePrompt;
-      out.innerHTML=`<div style="background:#fff7ed;color:#7c2d12;border-radius:12px;padding:12px"><b>احتاج تحديد التصنيف</b><br>${safe(r.message)}${linesHtml(r.lines)}<br>${(r.matches||[]).map(x=>`<div style="margin-top:6px">• ${safe(x.name_ar||x.name_en)} • ${safe(x.grade)} • ${Number(x.weight||0)} كغ • متاح ${Number(x.quantity||0)}</div>`).join('')}<div style="font-size:12px;margin-top:8px">اكتب فقط التصنيف المطلوب مثل: 40 كيلو EX</div></div>`;
+      out.innerHTML=`<div style="background:#fff7ed;color:#7c2d12;border-radius:12px;padding:12px">${providerNote}<b>احتاج تحديد التصنيف</b><br>${safe(r.message)}${linesHtml(r.lines)}<br>${(r.matches||[]).map(x=>`<div style="margin-top:6px">• ${safe(x.name_ar||x.name_en)} • ${safe(x.grade)} • ${Number(x.weight||0)} كغ • متاح ${Number(x.quantity||0)}</div>`).join('')}<div style="font-size:12px;margin-top:8px">اكتب أو احكي فقط التصنيف المطلوب مثل: 40 كيلو EX</div></div>`;
       return;
     }
 
@@ -43,8 +44,8 @@
     invoiceMode=!!r.invoice_mode;
     pendingSalePrompt=invoiceMode?(fullPrompt||pendingSalePrompt):'';
     const title=invoiceMode?'✅ فهمت الفاتورة':'✅ فهمت المبيعة';
-    const note=invoiceMode?'تقدر تكتب «وزيد ...» لإضافة صنف آخر، أو انقل الفاتورة للفحص النهائي.':'لم يتم تسجيل أي شيء. التسجيل يتم فقط بعد فحص المبيعة وتأكيدك.';
-    out.innerHTML=`<div style="background:#ecfdf5;color:#166534;border-radius:12px;padding:12px"><b>${title}</b><br>الزبون: <b>${safe(r.customer?.name)}</b>${linesHtml(lines)}<div style="margin-top:9px">عدد البالات: <b>${Number(r.total_qty||lines.reduce((s,x)=>s+Number(x.quantity||0),0))}</b><br>إجمالي ${invoiceMode?'الفاتورة':'المبيعة'}: <b>${money(r.total_jod)} د.أ</b><br>الرصيد الحالي: ${money(r.customer?.current_debt)} د.أ<br>الرصيد المتوقع بعد التسجيل: <b>${money(r.expected_debt_after)} د.أ</b></div><div style="font-size:12px;margin-top:8px">${note}</div><button id="asPrepareSale" class="btn wide" style="margin-top:12px">${invoiceMode?'نقل الفاتورة إلى شاشة المبيعات للفحص':'نقلها إلى شاشة المبيعات للفحص'}</button>${invoiceMode?'<button id="asFinishInvoice" class="btn wide" style="margin-top:8px;background:#ffffff;color:#166534">إنهاء إضافة الأصناف والاحتفاظ بالمعاينة</button>':''}</div>`;
+    const note=invoiceMode?'تقدر تقول «وزيد ...» لإضافة صنف آخر، أو انقل الفاتورة للفحص النهائي.':'لم يتم تسجيل أي شيء. التسجيل يتم فقط بعد فحص المبيعة وتأكيدك.';
+    out.innerHTML=`<div style="background:#ecfdf5;color:#166534;border-radius:12px;padding:12px">${providerNote}<b>${title}</b><br>الزبون: <b>${safe(r.customer?.name)}</b>${linesHtml(lines)}<div style="margin-top:9px">عدد البالات: <b>${Number(r.total_qty||lines.reduce((s,x)=>s+Number(x.quantity||0),0))}</b><br>إجمالي ${invoiceMode?'الفاتورة':'المبيعة'}: <b>${money(r.total_jod)} د.أ</b><br>الرصيد الحالي: ${money(r.customer?.current_debt)} د.أ<br>الرصيد المتوقع بعد التسجيل: <b>${money(r.expected_debt_after)} د.أ</b></div><div style="font-size:12px;margin-top:8px">${note}</div><button id="asPrepareSale" class="btn wide" style="margin-top:12px">${invoiceMode?'نقل الفاتورة إلى شاشة المبيعات للفحص':'نقلها إلى شاشة المبيعات للفحص'}</button>${invoiceMode?'<button id="asFinishInvoice" class="btn wide" style="margin-top:8px;background:#ffffff;color:#166534">إنهاء إضافة الأصناف والاحتفاظ بالمعاينة</button>':''}</div>`;
     el('asPrepareSale').onclick=()=>prepare(r,lines);
     if(el('asFinishInvoice')) el('asFinishInvoice').onclick=()=>{clearSaleContext();el('agentPrompt').value='';};
   }
@@ -89,7 +90,7 @@
         const amt=row.querySelector('.gsAmt'); if(amt){amt.value=String(line.total_jod||0);amt.dispatchEvent(new Event('change',{bubbles:true}))}
       });
       const paid=el('gsPaid'); if(paid) paid.value='0';
-      const notes=el('gsNotes'); if(notes) notes.value='تم تجهيز الفاتورة من الوكيل الذكي';
+      const notes=el('gsNotes'); if(notes) notes.value='تم تجهيز الفاتورة من الوكيل الذكي عبر Gemini';
       el('gsResult')?.replaceChildren();
       clearSaleContext();
     },350);
@@ -105,29 +106,23 @@
     }
 
     const continuing=!!pendingSalePrompt&&isShortFollowup(typed)&&!isSaleCommand(typed);
-
-    // أي أمر جديد غير مبيعة وغير تكملة واضحة يلغي سياق الفاتورة القديمة.
     if(!isSaleCommand(typed)&&!continuing){
       clearSaleContext();
       return typeof originalRun==='function'?originalRun():undefined;
     }
-
-    // أمر مبيعة جديد يبدأ من الصفر، ولا يحمل فاتورة سابقة معه.
-    if(isSaleCommand(typed)&&!continuing){
-      clearSaleContext();
-    }
+    if(isSaleCommand(typed)&&!continuing)clearSaleContext();
 
     const prompt=continuing?(pendingSalePrompt+' وزيد '+typed):typed;
     const button=el('agentRunButton');
-    if(button){button.disabled=true;button.textContent='جاري فهم الفاتورة...'}
+    if(button){button.disabled=true;button.textContent='Gemini يفهم الأمر...'}
     try{
-      const r=await call('/api/v7/agent/sale-preview',{method:'POST',body:JSON.stringify({prompt})});
+      const r=await call('/api/v10/agent/sale-preview',{method:'POST',body:JSON.stringify({prompt})});
       show(r,prompt);
     }
     catch(e){
-      if(/اذكر عدد البالات|اذكر السعر|لم أتعرف على الصنف|اسم الزبون/.test(String(e.message||''))) pendingSalePrompt=prompt;
+      if(/عدد البالات|السعر|قيمة الصنف|الزبون|الصنف/.test(String(e.message||''))) pendingSalePrompt=prompt;
       const suffix=pendingSalePrompt?'\nتقدر تكمل بالمعلومة الناقصة فقط بدون إعادة الكلام من البداية.':'';
-      if(typeof window.showAgentMessage==='function')window.showAgentMessage(e.message+suffix);else if(el('agentResult'))el('agentResult').textContent=e.message+suffix;
+      if(typeof window.showAgentMessage==='function')window.showAgentMessage('تعذر على Gemini فهم المبيعة بدقة: '+e.message+suffix);else if(el('agentResult'))el('agentResult').textContent='تعذر على Gemini فهم المبيعة بدقة: '+e.message+suffix;
     }
     finally{if(button){button.disabled=false;button.textContent='فهم الأمر'}}
   };
