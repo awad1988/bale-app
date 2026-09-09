@@ -13,6 +13,7 @@
     if(invoiceMode)return true;
     return /(بالة|باله|بالات|كيلو|كغ|كريم|EX|اكسترا|إكسترا|A|B|بسعر|سعر|دفع|مدفوع|اجمالي|إجمالي|المجموع|مجموع|^[٠-٩0-9\s.]+$)/i.test(s);
   }
+  function clearSaleContext(){invoiceMode=false;pendingSalePrompt='';}
   async function call(url,opt){const r=await fetch(url,{cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||'تعذر فهم المبيعة');return b}
   function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 
@@ -45,7 +46,7 @@
     const note=invoiceMode?'تقدر تكتب «وزيد ...» لإضافة صنف آخر، أو انقل الفاتورة للفحص النهائي.':'لم يتم تسجيل أي شيء. التسجيل يتم فقط بعد فحص المبيعة وتأكيدك.';
     out.innerHTML=`<div style="background:#ecfdf5;color:#166534;border-radius:12px;padding:12px"><b>${title}</b><br>الزبون: <b>${safe(r.customer?.name)}</b>${linesHtml(lines)}<div style="margin-top:9px">عدد البالات: <b>${Number(r.total_qty||lines.reduce((s,x)=>s+Number(x.quantity||0),0))}</b><br>إجمالي ${invoiceMode?'الفاتورة':'المبيعة'}: <b>${money(r.total_jod)} د.أ</b><br>الرصيد الحالي: ${money(r.customer?.current_debt)} د.أ<br>الرصيد المتوقع بعد التسجيل: <b>${money(r.expected_debt_after)} د.أ</b></div><div style="font-size:12px;margin-top:8px">${note}</div><button id="asPrepareSale" class="btn wide" style="margin-top:12px">${invoiceMode?'نقل الفاتورة إلى شاشة المبيعات للفحص':'نقلها إلى شاشة المبيعات للفحص'}</button>${invoiceMode?'<button id="asFinishInvoice" class="btn wide" style="margin-top:8px;background:#ffffff;color:#166534">إنهاء إضافة الأصناف والاحتفاظ بالمعاينة</button>':''}</div>`;
     el('asPrepareSale').onclick=()=>prepare(r,lines);
-    if(el('asFinishInvoice')) el('asFinishInvoice').onclick=()=>{invoiceMode=false;pendingSalePrompt='';el('agentPrompt').value='';};
+    if(el('asFinishInvoice')) el('asFinishInvoice').onclick=()=>{clearSaleContext();el('agentPrompt').value='';};
   }
 
   async function prepare(r,lines){
@@ -90,22 +91,34 @@
       const paid=el('gsPaid'); if(paid) paid.value='0';
       const notes=el('gsNotes'); if(notes) notes.value='تم تجهيز الفاتورة من الوكيل الذكي';
       el('gsResult')?.replaceChildren();
-      invoiceMode=false;pendingSalePrompt='';
+      clearSaleContext();
     },350);
   }
 
   window.runAgent=async function(){
     const typed=el('agentPrompt')?.value.trim()||'';
+    if(!typed)return;
+
     if(isStatementCommand(typed)){
-      invoiceMode=false;
-      pendingSalePrompt='';
+      clearSaleContext();
       return typeof originalRun==='function'?originalRun():undefined;
     }
+
     const continuing=!!pendingSalePrompt&&isShortFollowup(typed)&&!isSaleCommand(typed);
-    if(!isSaleCommand(typed)&&!continuing) return typeof originalRun==='function'?originalRun():undefined;
+
+    // أي أمر جديد غير مبيعة وغير تكملة واضحة يلغي سياق الفاتورة القديمة.
+    if(!isSaleCommand(typed)&&!continuing){
+      clearSaleContext();
+      return typeof originalRun==='function'?originalRun():undefined;
+    }
+
+    // أمر مبيعة جديد يبدأ من الصفر، ولا يحمل فاتورة سابقة معه.
+    if(isSaleCommand(typed)&&!continuing){
+      clearSaleContext();
+    }
+
     const prompt=continuing?(pendingSalePrompt+' وزيد '+typed):typed;
     const button=el('agentRunButton');
-    if(!prompt)return;
     if(button){button.disabled=true;button.textContent='جاري فهم الفاتورة...'}
     try{
       const r=await call('/api/v7/agent/sale-preview',{method:'POST',body:JSON.stringify({prompt})});
