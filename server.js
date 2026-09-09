@@ -644,7 +644,7 @@ res.set('Pragma','no-cache');
 res.set('Expires','0');
   const [shipments, bales, customers, payments, sales, expenses, cashMovements, suppliers, supplierPayments] = await Promise.all([
   supabaseRequest('shipments?select=*&order=created_at.asc'),
-  supabaseRequest('bales?select=*&order=created_at.asc'),
+  supabaseRequestAll('bales?select=*&order=created_at.asc'),
   supabaseRequest('customers?select=*&order=created_at.asc'),
   supabaseRequest('payments?select=*&order=paid_at.asc'),
   supabaseRequest('sales?select=*'),
