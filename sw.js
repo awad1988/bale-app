@@ -1,4 +1,4 @@
-const CACHE='bale-app-v4';
+const CACHE='bale-app-v5-exchange';
 
 self.addEventListener('install', event => {
   self.skipWaiting();

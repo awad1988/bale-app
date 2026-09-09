@@ -22,6 +22,33 @@ module.exports=function registerPartialReturnFinancialRoutes(ctx){
   }
   function returnBatch(status){const m=String(status||'').match(/\[RETURN_BATCH:([^\]]+)\]/i);return m?String(m[1]):''}
   function returnValue(status){const m=String(status||'').match(/\[RETURN_VALUE:([0-9.]+)\]/i);return m?Number(m[1]):0}
+  function returnRecords(notes){
+    const records=new Map();const re=/\[RETURN_DATA:([A-Za-z0-9_-]+)\]/g;let match;
+    while((match=re.exec(String(notes||'')))){
+      try{
+        const record=JSON.parse(Buffer.from(match[1],'base64url').toString('utf8'));
+        if(record&&record.id&&Array.isArray(record.lines)&&!records.has(String(record.id)))records.set(String(record.id),record);
+      }catch(_){ }
+    }
+    return [...records.values()];
+  }
+
+  function recordTotal(record){
+    return (record?.lines||[]).reduce((sum,line)=>sum+Number(line.quantity||0)*Number(line.unit_price_jod||0),0);
+  }
+  function legacyRecords(rows){
+    const totals=new Map();
+    for(const bale of rows||[]){
+      const id=returnBatch(bale.status);if(!id)continue;
+      totals.set(id,(totals.get(id)||0)+returnValue(bale.status));
+    }
+    return [...totals.entries()].map(([id,total])=>({id,lines:[{line_index:-1,quantity:1,unit_price_jod:total}]}));
+  }
+  function mergedRecords(notes,rows){
+    const merged=new Map(returnRecords(notes).map(record=>[String(record.id),record]));
+    for(const record of legacyRecords(rows))if(!merged.has(String(record.id)))merged.set(String(record.id),record);
+    return [...merged.values()];
+  }
   function ts(v){const n=new Date(v||0).getTime();return Number.isFinite(n)?n:0}
 
   async function paymentAllocationForTarget(targetSale,allSales,regularPayments,fullReturnedIds){
@@ -46,6 +73,7 @@ module.exports=function registerPartialReturnFinancialRoutes(ctx){
 
   app.post('/api/v8/sales/:id/reconcile-return',async function(req,res){
     const saleId=String(req.params.id||'').trim();
+    const requestedReturnId=String(req.body?.return_id||'').trim();
     try{
       if(!saleId)throw new Error('رقم المبيعة غير صالح.');
       const sales=await fetchAll('sales?select=id,customer_id,total_jod,notes,sale_date,created_at&id=eq.'+encodeURIComponent(saleId));
@@ -64,17 +92,19 @@ module.exports=function registerPartialReturnFinancialRoutes(ctx){
       for(const s of allSales){if(payments.some(p=>String(p.id)===stableUuid('return-credit|'+s.id)))fullReturnedIds.add(String(s.id));}
       for(const c of fullCashReturns){if(allSales.some(s=>String(s.id)===String(c.reference_id)))fullReturnedIds.add(String(c.reference_id));}
 
+      const records=mergedRecords(sale.notes,returnedBales);
       const batchTotals=new Map();
-      for(const b of returnedBales){
-        const batch=returnBatch(b.status);if(!batch)continue;
-        batchTotals.set(batch,(batchTotals.get(batch)||0)+returnValue(b.status));
-      }
+      for(const record of records)batchTotals.set(String(record.id),recordTotal(record));
       const batches=[...batchTotals.keys()];
 
       const partialPaymentIds=new Set();
-      for(const s of allSales){
-        const rb=await fetchAll('bales?select=status&status=like.'+encodeURIComponent('*[RETURN_OF:'+s.id+']*'));
-        for(const batch of [...new Set(rb.map(b=>returnBatch(b.status)).filter(Boolean))])partialPaymentIds.add(stableUuid('partial-return-credit|'+s.id+'|'+batch));
+      for(const item of allSales){
+        let recordsForSale=returnRecords(item.notes);
+        if(!recordsForSale.length){
+          const rows=await fetchAll('bales?select=status&status=like.'+encodeURIComponent('*[RETURN_OF:'+item.id+']*'));
+          recordsForSale=legacyRecords(rows);
+        }
+        for(const record of recordsForSale)partialPaymentIds.add(stableUuid('partial-return-credit|'+item.id+'|'+record.id));
       }
       const regularPayments=payments.filter(p=>!fullReturnPaymentIds.has(String(p.id))&&!partialPaymentIds.has(String(p.id)));
       const paidCoverage=await paymentAllocationForTarget(sale,allSales,regularPayments,fullReturnedIds);
@@ -94,13 +124,21 @@ module.exports=function registerPartialReturnFinancialRoutes(ctx){
       }
 
       let creditLeft=desiredCredit;
+      const batchSettlements=[];
       for(const batch of batches){
         const batchTotal=Number(batchTotals.get(batch)||0);
         const batchCredit=Math.min(batchTotal,creditLeft);
         const batchCash=Math.max(0,batchTotal-batchCredit);
         creditLeft=Math.max(0,creditLeft-batchCredit);
+        batchSettlements.push({
+          return_id:batch,
+          returned_total:Number(batchTotal.toFixed(2)),
+          debt_credit:Number(batchCredit.toFixed(2)),
+          cash_refund:Number(batchCash.toFixed(2))
+        });
 
         if(batchCredit>0){
+
           await supabaseRequest('rpc/record_payment',{method:'POST',body:JSON.stringify({
             p_id:stableUuid('partial-return-credit|'+sale.id+'|'+batch),
             p_customer_id:Number(sale.customer_id),p_amount:Number(batchCredit.toFixed(2))
@@ -116,7 +154,8 @@ module.exports=function registerPartialReturnFinancialRoutes(ctx){
       }
 
       const customers=await fetchAll('customers?select=id,name,debt&id=eq.'+encodeURIComponent(customerId));
-      res.json({ok:true,customer_id:sale.customer_id,paid_coverage:Number(paidCoverage.toFixed(2)),returned_total:Number(returnedTotal.toFixed(2)),debt_credit:Number(desiredCredit.toFixed(2)),cash_refund:Number(desiredCash.toFixed(2)),debt:Number(customers[0]?.debt||0)});
+      const currentBatch=batchSettlements.find(x=>x.return_id===requestedReturnId)||null;
+      res.json({ok:true,customer_id:sale.customer_id,paid_coverage:Number(paidCoverage.toFixed(2)),returned_total:Number(returnedTotal.toFixed(2)),debt_credit:Number(desiredCredit.toFixed(2)),cash_refund:Number(desiredCash.toFixed(2)),batch_settlements:batchSettlements,current_batch:currentBatch,debt:Number(customers[0]?.debt||0)});
     }catch(e){res.status(400).json({error:e.message,retry_safe:true})}
   });
 };

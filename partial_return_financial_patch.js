@@ -8,11 +8,15 @@
       const method=String(init?.method||'GET').toUpperCase();
       if(m&&method==='POST'&&response.ok){
         const saleId=decodeURIComponent(m[1]);
+        let returnId='';
+        try{returnId=String(JSON.parse(String(init?.body||'{}')).return_id||'')}catch(_){ }
         const rr=await realFetch('/api/v8/sales/'+encodeURIComponent(saleId)+'/reconcile-return',{
-          method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:'{}'
+          method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({return_id:returnId})
         });
         const body=await rr.json().catch(()=>({}));
         if(!rr.ok)throw new Error(body.error||'تعذر تسوية المرتجع ماليًا');
+        window.returnReconcileResults=window.returnReconcileResults||{};
+        window.returnReconcileResults[saleId+'|'+returnId]=body;
       }
     }catch(e){
       console.error('partial return finance reconciliation failed',e);

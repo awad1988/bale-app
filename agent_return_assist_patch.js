@@ -32,7 +32,10 @@
     const chooser=best.input.closest('[id^="prChooser_"]');
     if(chooser&&chooser.classList.contains('hidden')){
       const idx=chooser.id.replace('prChooser_','');
-      document.querySelector('.prOpen[data-index="'+idx+'"]')?.click();
+      const selector=intent.exchange
+        ? '.prExchangeOpen[data-index="'+idx+'"]'
+        : '.prOpen[data-index="'+idx+'"]';
+      document.querySelector(selector)?.click();
     }
     const max=Number(best.input.dataset.max||0);const q=Math.max(1,Math.min(max,Number(intent.quantity||1)));
     best.input.value=String(q);best.input.dispatchEvent(new Event('input',{bubbles:true}));

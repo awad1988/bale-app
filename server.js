@@ -155,7 +155,7 @@ async function getAgentSnapshot() {
   const [customers, suppliers, payments, sales, expenses, shipments, bales, supplierPayments, cashMovements] = await Promise.all([
     supabaseRequest('customers?select=id,name,debt'),
     supabaseRequest('suppliers?select=id,name,balance'),
-    supabaseRequest('payments?select=customer_id,amount,paid_at'),
+    supabaseRequest('payments?select=id,customer_id,amount,paid_at'),
     supabaseRequest('sales?select=customer_id,total_jod,sale_date,created_at'),
     supabaseRequest('expenses?select=amount,category,expense_date'),
     supabaseRequest('shipments?select=id,supplier_id,supplier,container_name,fx,customs,clearance,other_cost,purchase_date,arrival_date,created_at'),
@@ -663,7 +663,26 @@ res.set('Expires','0');
 supabaseRequest('supplier_payments?select=*&order=payment_date.asc')
 ]);
     const returnPaymentIds = new Set((sales || []).map(x => stableUuid('return-credit|' + x.id)));
+    for (const sale of (sales || [])) {
+      const re = /\[RETURN_DATA:([A-Za-z0-9_-]+)\]/g;
+      let match;
+      while ((match = re.exec(String(sale.notes || '')))) {
+        try {
+          const record = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8'));
+          if (record?.id) returnPaymentIds.add(stableUuid('partial-return-credit|' + sale.id + '|' + record.id));
+        } catch (_) {}
+      }
+    }
+    for (const bale of (bales || [])) {
+      const status = String(bale.status || '');
+      const saleMatch = status.match(/\[RETURN_OF:([^\]]+)\]/i);
+      const batchMatch = status.match(/\[RETURN_BATCH:([^\]]+)\]/i);
+      if (saleMatch && batchMatch) {
+        returnPaymentIds.add(stableUuid('partial-return-credit|' + saleMatch[1] + '|' + batchMatch[1]));
+      }
+    }
     res.json({
+
       shipments: (shipments || []).map(x => ({
         id: x.id,
         supplier: x.supplier,

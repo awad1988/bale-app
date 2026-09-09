@@ -920,7 +920,7 @@ const allCashMovements=[
     notes:x.notes||'',
     label:'مصروف: '+(x.category||'عام')
   })),
-  ...payments.map(x=>({
+  ...payments.filter(x=>!x.isReturn).map(x=>({
     type:'in',
     amount:x.amount,
     date:x.date,

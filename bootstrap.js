@@ -25,7 +25,7 @@ function replaceOrFail(pattern, replacement, label) {
 
 replaceOrFail(
   "supabaseRequest('sales?select=customer_id,total_jod,sale_date,created_at')",
-  "supabaseRequest('sales?select=customer_id,total_jod,sale_date,created_at,notes')",
+  "supabaseRequest('sales?select=id,customer_id,total_jod,sale_date,created_at,notes')",
   'agent sales notes'
 );
 
@@ -51,7 +51,28 @@ replaceOrFail(
   const purchases = snapshot.bales.reduce((sum, item) => sum + (rowNum(item.buy_usd) * rowNum(shipmentById.get(String(item.shipment_id))?.fx)), 0);
   const landedCosts = snapshot.shipments.reduce((sum, item) => sum + rowNum(item.customs) + rowNum(item.clearance) + rowNum(item.other_cost), 0);
   const sales = snapshot.sales.reduce((sum, item) => sum + rowNum(item.total_jod), 0);
-  const customerPayments = snapshot.payments.reduce((sum, item) => sum + rowNum(item.amount), 0);
+  const returnPaymentIds = new Set(snapshot.sales.map(item => stableUuid('return-credit|' + item.id)));
+  for (const sale of snapshot.sales) {
+    const re = /\[RETURN_DATA:([A-Za-z0-9_-]+)\]/g;
+    let match;
+    while ((match = re.exec(String(sale.notes || '')))) {
+      try {
+        const record = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8'));
+        if (record?.id) returnPaymentIds.add(stableUuid('partial-return-credit|' + sale.id + '|' + record.id));
+      } catch (_) {}
+    }
+  }
+  for (const bale of snapshot.bales) {
+    const status = String(bale.status || '');
+    const saleMatch = status.match(/\[RETURN_OF:([^\]]+)\]/i);
+    const batchMatch = status.match(/\[RETURN_BATCH:([^\]]+)\]/i);
+    if (saleMatch && batchMatch) {
+      returnPaymentIds.add(stableUuid('partial-return-credit|' + saleMatch[1] + '|' + batchMatch[1]));
+    }
+  }
+  const customerPayments = snapshot.payments
+    .filter(item => !returnPaymentIds.has(String(item.id)))
+    .reduce((sum, item) => sum + rowNum(item.amount), 0);
   const expenses = snapshot.expenses.reduce((sum, item) => sum + rowNum(item.amount), 0);
   const supplierPayments = snapshot.supplierPayments.reduce((sum, item) => sum + rowNum(item.amount_jod), 0);
   const manualCashIn = snapshot.cashMovements.filter(item => item.movement_type === 'in').reduce((sum, item) => sum + rowNum(item.amount), 0);

@@ -54,6 +54,55 @@ module.exports = function registerPartialReturnRoutes(ctx) {
   function returnBatch(status){const m=String(status||'').match(/\[RETURN_BATCH:([^\]]+)\]/i);return m?String(m[1]):''}
   function returnValue(status){const m=String(status||'').match(/\[RETURN_VALUE:([0-9.]+)\]/i);return m?Number(m[1]):0}
   function returnLineIndex(status){const m=String(status||'').match(/\[RETURN_LINE:(\d+)\]/i);return m?Number(m[1]):-1}
+  function exchangeOf(notes){const m=String(notes||'').match(/\[EXCHANGE_OF:([^\]]+)\]/i);return m?String(m[1]):''}
+  function exchangeReturn(notes){const m=String(notes||'').match(/\[EXCHANGE_RETURN:([^\]]+)\]/i);return m?String(m[1]):''}
+  function returnRecords(notes){
+    const records=new Map();const re=/\[RETURN_DATA:([A-Za-z0-9_-]+)\]/g;let match;
+    while((match=re.exec(String(notes||'')))){
+      try{
+        const record=JSON.parse(Buffer.from(match[1],'base64url').toString('utf8'));
+        if(record&&record.id&&Array.isArray(record.lines)&&!records.has(String(record.id)))records.set(String(record.id),record);
+      }catch(_){ }
+    }
+    return [...records.values()];
+  }
+
+  function recordTotal(record){
+    return (record?.lines||[]).reduce((sum,line)=>sum+Number(line.quantity||0)*Number(line.unit_price_jod||0),0);
+  }
+  function legacyReturnRecords(rows){
+    const grouped=new Map();
+    for(const bale of rows||[]){
+      const id=returnBatch(bale.status);const lineIndex=returnLineIndex(bale.status);const value=returnValue(bale.status);
+      if(!id||lineIndex<0||!(value>0))continue;
+      let record=grouped.get(id);
+      if(!record){record={id,created_at:null,lines:[]};grouped.set(id,record)}
+      let line=record.lines.find(x=>Number(x.line_index)===lineIndex&&Number(x.unit_price_jod)===value);
+      if(!line){line={line_index:lineIndex,quantity:0,unit_price_jod:value};record.lines.push(line)}
+      line.quantity+=1;
+    }
+    return [...grouped.values()];
+  }
+  function mergeReturnRecords(notes,legacyRows){
+    const merged=new Map(returnRecords(notes).map(record=>[String(record.id),record]));
+    for(const record of legacyReturnRecords(legacyRows))if(!merged.has(String(record.id)))merged.set(String(record.id),record);
+    return [...merged.values()];
+  }
+  async function ensureReturnRecord(sale,returnId,rows){
+    let records=returnRecords(sale.notes);
+    if(records.some(record=>String(record.id)===returnId))return records;
+    const legacy=legacyReturnRecords(rows).find(record=>String(record.id)===returnId);
+    if(!legacy)return records;
+    const record={...legacy,created_at:new Date().toISOString()};
+    const encoded=Buffer.from(JSON.stringify(record),'utf8').toString('base64url');
+    const notes='[RETURN_DATA:'+encoded+'] '+String(sale.notes||'');
+    await supabaseRequest('sales?id=eq.'+encodeURIComponent(sale.id),{
+      method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({notes})
+    });
+    sale.notes=notes;
+    records=returnRecords(notes);
+    return records;
+  }
 
   async function fetchAll(basePath){
     const out=[];const pageSize=1000;
@@ -103,13 +152,13 @@ module.exports = function registerPartialReturnRoutes(ctx) {
     }
   }
 
-  async function financialState(sale,batchId,returnedBales){
+  async function financialState(sale,batchId,records){
     const saleAmount=Math.abs(Number(sale.total_jod||0));
     const originalPayment=await paymentById(stableUuid('payment|'+batchId));
     const paidAmount=Math.min(saleAmount,Math.max(0,Number(originalPayment?.amount||0)));
     const originalCredit=Math.max(0,saleAmount-paidAmount);
-    const returnedTotal=returnedBales.reduce((sum,b)=>sum+returnValue(b.status),0);
-    const batches=[...new Set(returnedBales.map(b=>returnBatch(b.status)).filter(Boolean))];
+    const returnedTotal=(records||[]).reduce((sum,record)=>sum+recordTotal(record),0);
+    const batches=[...new Set((records||[]).map(record=>String(record.id||'')).filter(Boolean))];
     let credited=0;
     for(const rb of batches){const p=await paymentById(stableUuid('partial-return-credit|'+sale.id+'|'+rb));credited+=Number(p?.amount||0)}
     const cashRows=await fetchAll('cash_movements?select=id,amount,movement_date,reference_id,notes&reference_type=eq.sale_partial_return&reference_id=eq.'+encodeURIComponent(sale.id));
@@ -119,8 +168,8 @@ module.exports = function registerPartialReturnRoutes(ctx) {
     return {saleAmount,paidAmount,originalCredit,returnedTotal,batches,credited,cashRefunded,targetCredit,targetCash,cashRows};
   }
 
-  async function applyFinancialAdjustment(sale,batchId,returnId,returnedBales){
-    const state=await financialState(sale,batchId,returnedBales);
+  async function applyFinancialAdjustment(sale,batchId,returnId,records){
+    const state=await financialState(sale,batchId,records);
     const creditNeed=Math.max(0,Number((state.targetCredit-state.credited).toFixed(2)));
     const cashNeed=Math.max(0,Number((state.targetCash-state.cashRefunded).toFixed(2)));
     const paymentId=stableUuid('partial-return-credit|'+sale.id+'|'+returnId);
@@ -134,23 +183,31 @@ module.exports = function registerPartialReturnRoutes(ctx) {
         notes:'[RETURN_BATCH:'+returnId+'] [RETURN_OF:'+sale.id+'] رد نقدي لمرتجع جزئي'
       })});
     }
-    return financialState(sale,batchId,returnedBales);
+    return financialState(sale,batchId,records);
   }
+
 
   async function saleSnapshot(sale){
     const batchId=saleBatch(sale.notes);const lines=parseSaleLines(sale.notes);
-    if(!batchId||!lines.length)return{batchId,lines:[],soldBales:[],returnedBales:[]};
+    if(!batchId||!lines.length)return{batchId,lines:[],soldBales:[],returnedBales:[],returnRecords:[]};
     const [soldBales,returnedBales]=await Promise.all([soldBalesForBatch(batchId),returnedBalesForSale(sale.id)]);
+    const records=mergeReturnRecords(sale.notes,returnedBales);
     const returnedByLine=new Map();
-    for(const b of returnedBales){const idx=returnLineIndex(b.status);if(idx>=0)returnedByLine.set(idx,(returnedByLine.get(idx)||0)+1)}
+    for(const record of records){
+      for(const item of record.lines||[]){
+        const idx=Number(item.line_index);
+        if(idx>=0)returnedByLine.set(idx,(returnedByLine.get(idx)||0)+Number(item.quantity||0));
+      }
+    }
     const detailed=lines.map((line,index)=>{
       const soldQty=soldBales.filter(b=>lineMatchesBale(line,b)).length;
       const returnedQty=returnedByLine.get(index)||0;
       const unit=Number(line.line_total_jod||0)/Math.max(1,Number(line.quantity||0));
       return {...line,line_index:index,unit_price_jod:Number(unit.toFixed(6)),returned_qty:returnedQty,remaining_qty:soldQty,returned_value:Number((returnedQty*unit).toFixed(2))};
     });
-    return{batchId,lines:detailed,soldBales,returnedBales};
+    return{batchId,lines:detailed,soldBales,returnedBales,returnRecords:records};
   }
+
 
   app.get('/api/v7/customers/:id/statement',async function(req,res){
     try{
@@ -163,6 +220,11 @@ module.exports = function registerPartialReturnRoutes(ctx) {
       ]);
       const customer=customers[0];if(!customer)throw new Error('الزبون غير موجود.');
       const saleById=new Map(sales.map(s=>[String(s.id),s]));
+      const exchangeSaleByReturn=new Map();
+      for(const item of sales){
+        const exchangeReturnId=exchangeReturn(item.notes);
+        if(exchangeReturnId)exchangeSaleByReturn.set(exchangeReturnId,item);
+      }
       const fullReturnPaymentToSale=new Map(sales.map(s=>[stableUuid('return-credit|'+s.id),String(s.id)]));
       const fullReturnPayments=payments.filter(p=>fullReturnPaymentToSale.has(String(p.id)));
       const fullReturnPaymentIds=new Set(fullReturnPayments.map(p=>String(p.id)));
@@ -173,8 +235,8 @@ module.exports = function registerPartialReturnRoutes(ctx) {
       const saleDetails=new Map();const partialPaymentIds=new Set();let partialReturnedTotal=0;let partialCreditTotal=0;
       for(const sale of sales){
         const snap=await saleSnapshot(sale);saleDetails.set(String(sale.id),snap);
-        partialReturnedTotal+=snap.returnedBales.reduce((sum,b)=>sum+returnValue(b.status),0);
-        const batches=[...new Set(snap.returnedBales.map(b=>returnBatch(b.status)).filter(Boolean))];
+        partialReturnedTotal+=snap.returnRecords.reduce((sum,record)=>sum+recordTotal(record),0);
+        const batches=[...new Set(snap.returnRecords.map(record=>String(record.id||'')).filter(Boolean))];
         for(const rb of batches){
           const pid=stableUuid('partial-return-credit|'+sale.id+'|'+rb);partialPaymentIds.add(pid);
           const p=payments.find(x=>String(x.id)===pid)||await paymentById(pid);if(p)partialCreditTotal+=Number(p.amount||0);
@@ -192,8 +254,10 @@ module.exports = function registerPartialReturnRoutes(ctx) {
       const movements=[];
       for(const sale of sales){
         const snap=saleDetails.get(String(sale.id));const fullReturned=fullReturnedSaleIds.has(String(sale.id));
+        const exchangeReturnId=exchangeReturn(sale.notes);
         movements.push({id:sale.id,type:'sale',date:sale.sale_date||sale.created_at||null,created_at:sale.created_at||sale.sale_date||null,
-          amount:Number(sale.total_jod||0),notes:sale.notes||'',lines:snap.lines,returned:fullReturned,partial_returned:snap.returnedBales.length>0,
+          amount:Number(sale.total_jod||0),notes:sale.notes||'',lines:snap.lines,returned:fullReturned,partial_returned:snap.returnRecords.length>0,
+          exchange:exchangeReturnId?{role:'replacement',original_sale_id:exchangeOf(sale.notes),return_id:exchangeReturnId}:null,
           can_return:!!snap.batchId&&!fullReturned&&snap.lines.some(x=>x.remaining_qty>0)});
       }
       for(const p of regularPayments)movements.push({id:p.id,type:'payment',date:p.paid_at||null,created_at:p.paid_at||null,amount:Number(p.amount||0),notes:'',lines:[]});
@@ -207,20 +271,27 @@ module.exports = function registerPartialReturnRoutes(ctx) {
             amount:Number(credit?.amount||0),returned_total:Number(sale.total_jod||0),cash_refund:Number(cash?.amount||0),notes:'مرتجع مبيعة',lines:parseSaleLines(sale.notes)});
         }
         const snap=saleDetails.get(saleId);
-        const batches=[...new Set(snap.returnedBales.map(b=>returnBatch(b.status)).filter(Boolean))];
-        for(const rb of batches){
-          const rows=snap.returnedBales.filter(b=>returnBatch(b.status)===rb);
-          const returnedTotal=rows.reduce((sum,b)=>sum+returnValue(b.status),0);
+        const partialCashRows=await fetchAll('cash_movements?select=id,amount,movement_date,notes&reference_type=eq.sale_partial_return&reference_id=eq.'+encodeURIComponent(saleId));
+        for(const record of snap.returnRecords){
+          const rb=String(record.id||'');if(!rb)continue;
+          const returnedTotal=recordTotal(record);
           const pid=stableUuid('partial-return-credit|'+saleId+'|'+rb);
           const credit=payments.find(p=>String(p.id)===pid)||await paymentById(pid);
-          const cashRows=await fetchAll('cash_movements?select=id,amount,movement_date,notes&reference_type=eq.sale_partial_return&reference_id=eq.'+encodeURIComponent(saleId));
-          const cash=cashRows.find(x=>String(x.notes||'').includes('[RETURN_BATCH:'+rb+']'));
-          const byLine=new Map();for(const b of rows){const idx=returnLineIndex(b.status);byLine.set(idx,(byLine.get(idx)||0)+1)}
+          const cash=partialCashRows.find(x=>String(x.notes||'').includes('[RETURN_BATCH:'+rb+']'));
+          const byLine=new Map();
+          for(const item of record.lines||[]){
+            const idx=Number(item.line_index);
+            byLine.set(idx,(byLine.get(idx)||0)+Number(item.quantity||0));
+          }
           const originals=parseSaleLines(sale.notes);
           const retLines=[...byLine.entries()].map(([idx,qty])=>{const original=originals[idx]||{};const unit=Number(original.line_total_jod||0)/Math.max(1,Number(original.quantity||0));return{...original,quantity:qty,line_total_jod:Number((qty*unit).toFixed(2))}});
-          movements.push({id:'partial-return-'+saleId+'-'+rb,type:'partial_return',date:credit?.paid_at||cash?.movement_date||null,created_at:credit?.paid_at||cash?.movement_date||null,
-            amount:Number(credit?.amount||0),returned_total:Number(returnedTotal.toFixed(2)),cash_refund:Number(cash?.amount||0),notes:'مرتجع جزئي',lines:retLines});
+          const replacement=exchangeSaleByReturn.get(rb)||null;
+          const movementDate=credit?.paid_at||cash?.movement_date||record.created_at||null;
+          movements.push({id:'partial-return-'+saleId+'-'+rb,type:'partial_return',date:movementDate,created_at:movementDate,
+            amount:Number(credit?.amount||0),returned_total:Number(returnedTotal.toFixed(2)),cash_refund:Number(cash?.amount||0),notes:replacement?'بالات راجعة ضمن تبديل':'مرتجع جزئي',lines:retLines,
+            exchange:replacement?{role:'returned',replacement_sale_id:replacement.id,replacement_total:Number(replacement.total_jod||0),replacement_lines:parseSaleLines(replacement.notes)}:null});
         }
+
       }
       movements.sort((a,b)=>new Date(a.created_at||a.date||0)-new Date(b.created_at||b.date||0));
       let running=openingDebt;for(const m of movements){if(m.type==='sale')running+=Number(m.amount||0);else running-=Number(m.amount||0);m.balance_after=running}
@@ -237,8 +308,10 @@ module.exports = function registerPartialReturnRoutes(ctx) {
       const sales=await fetchAll('sales?select=id,customer_id,total_jod,notes&id=eq.'+encodeURIComponent(saleId));const sale=sales[0];if(!sale)throw new Error('المبيعة غير موجودة.');
       const snap=await saleSnapshot(sale);if(!snap.batchId||!snap.lines.length)throw new Error('هذه المبيعة غير مرتبطة بأصناف قابلة للإرجاع.');
 
+      let records=snap.returnRecords;
+      const existingRecord=records.find(record=>String(record.id)===returnId)||null;
       let batchReturned=snap.returnedBales.filter(b=>returnBatch(b.status)===returnId);
-      if(!batchReturned.length){
+      if(!existingRecord&&!batchReturned.length){
         const requested=Array.isArray(req.body?.lines)?req.body.lines:[];if(!requested.length)throw new Error('اختر صنفًا واحدًا على الأقل للإرجاع.');
         const used=new Set();const selected=[];
         for(const raw of requested){
@@ -255,12 +328,16 @@ module.exports = function registerPartialReturnRoutes(ctx) {
         batchReturned=await returnedBalesForSale(saleId);batchReturned=batchReturned.filter(b=>returnBatch(b.status)===returnId);
       }
 
-      const allReturned=await returnedBalesForSale(saleId);
-      const state=await applyFinancialAdjustment(sale,snap.batchId,returnId,allReturned);
+      if(batchReturned.length)records=await ensureReturnRecord(sale,returnId,batchReturned);
+      const currentRecord=records.find(record=>String(record.id)===returnId)||existingRecord;
+      if(!currentRecord)throw new Error('تعذر تثبيت سجل المرتجع. أعد المحاولة بنفس العملية.');
+      const state=await applyFinancialAdjustment(sale,snap.batchId,returnId,records);
       const customers=await fetchAll('customers?select=id,name,debt&id=eq.'+encodeURIComponent(sale.customer_id));const customer=customers[0]||{};
-      const thisTotal=batchReturned.reduce((sum,b)=>sum+returnValue(b.status),0);
-      res.json({ok:true,customer_id:sale.customer_id,customer:customer.name||'',debt:Number(customer.debt||0),returned_qty:batchReturned.length,returned_total:Number(thisTotal.toFixed(2)),
+      const thisTotal=recordTotal(currentRecord);
+      const thisQty=(currentRecord.lines||[]).reduce((sum,line)=>sum+Number(line.quantity||0),0);
+      res.json({ok:true,customer_id:sale.customer_id,customer:customer.name||'',debt:Number(customer.debt||0),returned_qty:thisQty,returned_total:Number(thisTotal.toFixed(2)),
         cumulative_returned:Number(state.returnedTotal.toFixed(2)),cumulative_debt_credit:Number(state.targetCredit.toFixed(2)),cumulative_cash_refund:Number(state.targetCash.toFixed(2))});
+
     }catch(e){res.status(400).json({error:e.message,retry_safe:true,return_id:returnId})}
   });
 };
