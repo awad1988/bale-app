@@ -59,25 +59,22 @@ module.exports = function registerAgentSaleRoutes(ctx){
 
   function parseQty(segment){
     const s=String(segment||'');
-    // Prefer an explicit quantity tied to the bale word, especially spoken forms like "عدد 1 بالة".
-    const bale=s.match(/(?:عدد\s*)?(\d+)\s*(?:باله|بالات|بالة)\b/i);
+    // JS word-boundary (\\b) does not work reliably after Arabic letters,
+    // so match Arabic bale words without it and use whitespace/punctuation lookahead instead.
+    const bale=s.match(/(?:عدد\s*)?(\d+)\s*(?:باله|بالات|بالة)(?=\s|[،؛,.!?]|$)/i);
     if(bale) return Number(bale[1]);
-    const count=s.match(/\bعدد\s*(\d+)\b/i);
+    const count=s.match(/(?:^|\s)عدد\s*(\d+)(?=\s|[،؛,.!?]|$)/i);
     if(count) return Number(count[1]);
-    // Last resort: only accept a leading number when it is not clearly a price/value expression.
-    const lead=s.match(/^\s*(\d+)\b/);
+    const lead=s.match(/^\s*(\d+)(?=\s|[،؛,.!?]|$)/);
     if(lead&&!/(?:بقيمة|قيمه|قيمة|بسعر|سعر)\s*\d+/i.test(s.slice(0,(lead.index||0)+lead[0].length+20))) return Number(lead[1]);
     return 0;
   }
   function parsePrice(segment,qty){
     const s=String(segment||'');
-    // "بسعر" means price per bale.
     const unit=s.match(/(?:بسعر|سعر)\s*(\d+(?:\.\d+)?)/i);
     if(unit){const p=Number(unit[1]);return {unit:p,total:p*qty}}
-    // "بقيمة" / "إجمالي" means the total value of the line/invoice line.
     const total=s.match(/(?:بقيمة|بقمه|قيمه|قيمة|اجمالي|الإجمالي|الاجمالي|المجموع|مجموع)\s*(\d+(?:\.\d+)?)/i);
     if(total){const t=Number(total[1]);return {unit:qty?t/qty:0,total:t}}
-    // If wording says "البالة 200" treat it as unit price.
     const balePrice=s.match(/(?:الباله|البالة)\s*(\d+(?:\.\d+)?)/i);
     if(balePrice){const p=Number(balePrice[1]);return {unit:p,total:p*qty}}
     return {unit:0,total:0};
