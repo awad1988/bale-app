@@ -1,10 +1,12 @@
 (function(){
   let fullInventory=null;
+  let inventoryLoading=false;
+  let lastInventoryLoad=0;
   const TOTAL_CUSTOMS_EXPENSES_JOD=48000;
   const CUSTOMS_ALLOCATION_BALES=2773;
   const FIXED_EXPENSE_PER_BALE=TOTAL_CUSTOMS_EXPENSES_JOD/CUSTOMS_ALLOCATION_BALES;
   function val(obj,a,b){ return obj && (obj[a] != null ? obj[a] : obj[b]); }
-  function esc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
+  function esc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[c])); }
   function normName(v){
     return String(v||'').trim().toUpperCase()
       .replace(/[\u064B-\u065F\u0670]/g,'')
@@ -27,15 +29,22 @@
     if(id===4) return {id,label:'الفرع القديم'};
     return {id,label:s.replace(/\[BRANCH:\d+\]/ig,'').trim()||'متوفر'};
   }
-  async function loadFullInventory(){
+  async function loadFullInventory(force){
+    const now=Date.now();
+    if(inventoryLoading) return;
+    if(!force && now-lastInventoryLoad<1200) return;
+    inventoryLoading=true;
     try{
-      const r=await fetch('/api/v3/inventory/full',{cache:'no-store'});
+      const r=await fetch('/api/v3/inventory/full?ts='+now,{cache:'no-store'});
       const b=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(b.error||'فشل تحميل المخزون الكامل');
       fullInventory=b;
+      lastInventoryLoad=Date.now();
       renderAggregatedInventory();
     }catch(e){
-      console.error(e); fullInventory=null; renderAggregatedInventory();
+      console.error(e); renderAggregatedInventory();
+    }finally{
+      inventoryLoading=false;
     }
   }
   function renderAggregatedInventory(){
@@ -90,17 +99,25 @@
       const avgBuy=g.qty?g.buySum/g.qty:0;
       const name='<b>'+esc(g.nameAr||'-')+'</b>'+(g.nameEn?'<div class="small">'+esc(g.nameEn)+'</div>':'');
       return '<tr><td>'+name+'</td><td>'+esc(g.grade)+'</td><td>'+Number(g.weight||0).toFixed(0)+'</td><td><b>'+g.qty+'</b></td><td>'+avgBuy.toFixed(2)+'</td><td>'+expensePerBale.toFixed(2)+'</td><td><span class="pill ok">'+esc(g.branch.label)+'</span></td></tr>';
-    }).join('') || '<tr><td colspan="7">لا توجد بالات بعد.</td></tr>';
+    }).join('') || '<tr><td colspan="7">جاري تحميل المخزون...</td></tr>';
   }
   function install(){
     try{
       if(typeof renderAll==='function' && !renderAll.__inventoryAggregated){
         const original=renderAll;
-        const wrapped=function(){ const r=original.apply(this,arguments); setTimeout(renderAggregatedInventory,0); return r; };
+        const wrapped=function(){
+          const r=original.apply(this,arguments);
+          setTimeout(function(){ renderAggregatedInventory(); loadFullInventory(false); },0);
+          return r;
+        };
         wrapped.__inventoryAggregated=true; renderAll=wrapped;
       }
     }catch(e){}
-    renderAggregatedInventory(); loadFullInventory();
+    document.addEventListener('click',function(e){
+      const el=e.target&&e.target.closest?e.target.closest('button,a,[role="button"]'):null;
+      if(el && String(el.textContent||'').trim().includes('المخزون')) setTimeout(function(){loadFullInventory(true)},0);
+    },true);
+    renderAggregatedInventory(); loadFullInventory(true);
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install); else install();
 })();
