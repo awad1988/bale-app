@@ -18,11 +18,19 @@
     el('asPrepareSale').onclick=()=>prepare(r);
   }
 
-  function prepare(r){
+  async function prepare(r){
     openSection('normalSalesSection');
-    setTimeout(()=>{
+    try{
+      const catalog=await call('/api/v4/sales/catalog');
       const customer=el('gsCustomer');
-      if(customer){customer.value=String(r.customer.id);customer.dispatchEvent(new Event('change',{bubbles:true}))}
+      if(customer){
+        customer.innerHTML=(catalog.customers||[]).map(x=>`<option value="${safe(x.id)}">${safe(x.name)} — رصيد ${money(x.debt)} د.أ</option>`).join('');
+        customer.value=String(r.customer.id);
+        customer.dispatchEvent(new Event('change',{bubbles:true}));
+      }
+    }catch(_){ }
+
+    setTimeout(()=>{
       const rows=document.querySelectorAll('[data-gs-row]');
       const row=rows[0];
       if(!row)return;
