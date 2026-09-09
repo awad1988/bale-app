@@ -1,7 +1,7 @@
 module.exports = function registerAgentOpsRoutes(ctx){
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
-  const OPS_VERSION='2026-09-09-number-words-v3';
+  const OPS_VERSION='2026-09-09-number-words-v4';
 
   function norm(v){
     return String(v||'').trim().toLowerCase()
@@ -84,7 +84,7 @@ module.exports = function registerAgentOpsRoutes(ctx){
       if(t==='مليونين'){total+=2000000;current=0;seen=true;continue;}
       const n=tokenNumber(raw);
       if(n!==null){current+=n;seen=true;continue;}
-      if(seen&&/(دينار|دنانير|ليره|ليرة|الصندوق|صندوق|كاش|نقد|من|الى)/.test(raw))break;
+      if(seen&&/(دينار|دنانير|ليره|ليرة|الصندوق|صندوق|كاش|نقد|من|الى|الي)/.test(raw))break;
     }
     return seen?total+current:0;
   }
@@ -116,10 +116,10 @@ module.exports = function registerAgentOpsRoutes(ctx){
       const isExchange=/(تبديل|بدل|استبدال)/.test(text);
 
       const hasCash=/(صندوق|كاش|نقد)/.test(text);
-      const registerVerb=/(^|\s)(سجل|سجللي|سجلي|سجله|سجلها)(\s|$)/.test(text);
+      const registerVerb=/(^|\s)(سجل|سجللي|سجلي|سجله|سجلها|سجل لي)(\s|$)/.test(text);
       const explicitIn=/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/.test(text);
       const explicitOut=/(طلع|اخرج|سحب|صرف|خذ|خد)/.test(text);
-      const toCash=/(الى|لل|ل|في)\s*(?:ال)?(?:صندوق|كاش|نقد)/.test(text);
+      const toCash=/(الى|الي|لل|ل|في)\s*(?:ال)?(?:صندوق|كاش|نقد)/.test(text);
       const fromCash=/من\s*(?:ال)?(?:صندوق|كاش|نقد)/.test(text);
       const isCashIn=hasCash && (explicitIn || (registerVerb && toCash && !fromCash));
       const isCashOut=hasCash && (explicitOut || (registerVerb && fromCash));
@@ -133,7 +133,7 @@ module.exports = function registerAgentOpsRoutes(ctx){
 
       if(isCashIn||isCashOut){
         const amount=amountFrom(prompt);
-        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار. [NUM-V3]');
+        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار. [NUM-V4]');
         const type=isCashIn?'in':'out';
         return res.json({ok:true,version:OPS_VERSION,action:{type:'record_cash_movement',requiresConfirmation:true,payload:{type,amount,notes:prompt}},message:'تأكيد '+(type==='in'?'إدخال ':'إخراج ')+amount.toFixed(2)+' د.أ '+(type==='in'?'إلى':'من')+' الصندوق؟'});
       }
