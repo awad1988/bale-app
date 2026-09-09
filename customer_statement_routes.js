@@ -1,6 +1,7 @@
 module.exports = function registerCustomerStatementRoutes(ctx) {
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
+  const crypto = require('crypto');
 
   const ITALIAN_BATCH = 'ITALIAN-SALE-2026-09-09-V1';
   const ITALIAN_LINES = [
@@ -41,6 +42,54 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
       if (rows.length < pageSize) break;
     }
     return out;
+  }
+
+  function stableUuid(value) {
+    const chars = crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32).split('');
+    chars[12] = '5';
+    chars[16] = ((parseInt(chars[16], 16) & 3) | 8).toString(16);
+    const hex = chars.join('');
+    return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+  }
+
+  function saleBatch(notes) {
+    const match = String(notes || '').match(/\[SALE_BATCH:([^\]]+)\]/i);
+    return match ? String(match[1]) : '';
+  }
+
+  function reversalTarget(notes) {
+    const match = String(notes || '').match(/\[REVERSAL_OF:([^\]]+)\]/i);
+    return match ? String(match[1]) : '';
+  }
+
+  function branchId(status) {
+    const match = String(status || '').match(/\[BRANCH:(\d+)\]/i);
+    return match ? Number(match[1]) : 2;
+  }
+
+  async function paymentById(id) {
+    const rows = await supabaseRequest('payments?select=id,customer_id,amount&id=eq.' + encodeURIComponent(id) + '&limit=1');
+    return Array.isArray(rows) ? rows[0] : null;
+  }
+
+  async function restoreBales(rows) {
+    const byStatus = new Map();
+    for (const bale of rows) {
+      const status = '[BRANCH:' + branchId(bale.status) + '] متوفر';
+      const list = byStatus.get(status) || [];
+      list.push(bale);
+      byStatus.set(status, list);
+    }
+    for (const [status, bales] of byStatus.entries()) {
+      for (let i = 0; i < bales.length; i += 35) {
+        const ids = bales.slice(i, i + 35).map(x => x.id).join(',');
+        await supabaseRequest('bales?id=in.(' + ids + ')', {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ status })
+        });
+      }
+    }
   }
 
   function parseSaleLines(notes) {
@@ -84,6 +133,8 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
       const totalPayments = payments.reduce((s,x)=>s+Number(x.amount||0),0);
       const currentDebt = Number(customer.debt||0);
       const openingDebt = currentDebt - totalSales + totalPayments;
+      const reversedSaleIds = new Set(sales.map(s=>reversalTarget(s.notes)).filter(Boolean));
+      const paymentIds = new Set(payments.map(p=>String(p.id)));
 
       const movements = [];
       for (const s of sales) {
@@ -94,7 +145,12 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
           created_at: s.created_at || s.sale_date || null,
           amount: Number(s.total_jod||0),
           notes: s.notes || '',
-          lines: parseSaleLines(s.notes)
+          lines: parseSaleLines(s.notes),
+          reversed: reversedSaleIds.has(String(s.id)),
+          can_reverse: !!saleBatch(s.notes) &&
+            !reversalTarget(s.notes) &&
+            !reversedSaleIds.has(String(s.id)) &&
+            !paymentIds.has(stableUuid('payment|' + saleBatch(s.notes)))
         });
       }
       for (const p of payments) {
@@ -127,6 +183,56 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
       });
     } catch (e) {
       res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/v6/sales/:id/reverse', async function(req, res) {
+    const saleId = String(req.params.id || '').trim();
+    try {
+      if (!saleId) throw new Error('رقم المبيعة غير صالح.');
+      const sales = await fetchAll('sales?select=id,customer_id,total_jod,notes&id=eq.' + encodeURIComponent(saleId));
+      const sale = sales[0];
+      if (!sale) throw new Error('المبيعة غير موجودة.');
+
+      const batchId = saleBatch(sale.notes);
+      if (!batchId) throw new Error('هذه المبيعة قديمة وغير مرتبطة ببالات؛ لا يمكن عكسها تلقائيًا.');
+      if (reversalTarget(sale.notes)) throw new Error('لا يمكن عكس حركة عكس.');
+      const originalPaymentId = stableUuid('payment|' + batchId);
+      const originalPayment = await paymentById(originalPaymentId);
+      if (originalPayment && Number(originalPayment.amount || 0) > 0) {
+        throw new Error('هذه المبيعة معها دفعة نقدية. اعكسها بتسوية صندوق منفصلة حتى يبقى الحساب صحيحًا.');
+      }
+
+      const reversalTag = '[REVERSAL_OF:' + saleId + ']';
+      const existing = await fetchAll('sales?select=id,notes&notes=like.' + encodeURIComponent('*' + reversalTag + '*'));
+      const reversalSaleId = stableUuid('reversal-sale|' + saleId);
+      if (!existing.length) {
+        await supabaseRequest('rpc/record_sale', {
+          method: 'POST',
+          body: JSON.stringify({
+            p_id: reversalSaleId,
+            p_customer_id: Number(sale.customer_id),
+            p_amount: -Math.abs(Number(sale.total_jod || 0)),
+            p_notes: reversalTag + ' عكس مبيعة وإرجاع البالات للمخزون'
+          })
+        });
+      }
+
+      const taggedBales = await fetchAll('bales?select=id,status&status=like.' + encodeURIComponent('*[SALE_BATCH:' + batchId + ']*'));
+      if (taggedBales.length) await restoreBales(taggedBales);
+
+      const customers = await fetchAll('customers?select=id,name,debt&id=eq.' + encodeURIComponent(sale.customer_id));
+      const customer = customers[0] || {};
+      res.json({
+        ok: true,
+        already_reversed: existing.length > 0,
+        restored_bales: taggedBales.length,
+        customer_id: sale.customer_id,
+        customer: customer.name || '',
+        debt: Number(customer.debt || 0)
+      });
+    } catch (e) {
+      res.status(400).json({ error: e.message, retry_safe: true });
     }
   });
 };
