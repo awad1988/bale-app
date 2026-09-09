@@ -1,7 +1,7 @@
 module.exports = function registerAgentOpsRoutes(ctx){
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
-  const OPS_VERSION='2026-09-09-number-words-v4';
+  const OPS_VERSION='2026-09-09-expense-v1';
 
   function norm(v){
     return String(v||'').trim().toLowerCase()
@@ -104,6 +104,17 @@ module.exports = function registerAgentOpsRoutes(ctx){
     return [...items].sort((a,b)=>String(b.name||'').length-String(a.name||'').length)
       .find(x=>norm(x.name)&&text.includes(norm(x.name)))||null;
   }
+  function expenseCategory(text){
+    const s=norm(text);
+    if(/بنزين|ديزل|سولار|محروقات|وقود/.test(s))return 'محروقات';
+    if(/راتب|رواتب|موظف|عمال|عامل/.test(s))return 'رواتب';
+    if(/ايجار|اجار|كراء/.test(s))return 'إيجار';
+    if(/توصيل|نقل|شحن|تحميل|تنزيل/.test(s))return 'نقل وتوصيل';
+    if(/اكل|طعام|مطعم|ضيافه|ضيافة/.test(s))return 'ضيافة';
+    if(/صيانه|صيانة|تصليح|كراج/.test(s))return 'صيانة';
+    if(/كهرباء|ماء|نت|انترنت|هاتف/.test(s))return 'خدمات';
+    return 'عام';
+  }
 
   app.get('/api/v11/agent/ops-version',(_req,res)=>res.json({ok:true,version:OPS_VERSION}));
 
@@ -124,6 +135,8 @@ module.exports = function registerAgentOpsRoutes(ctx){
       const isCashIn=hasCash && (explicitIn || (registerVerb && toCash && !fromCash));
       const isCashOut=hasCash && (explicitOut || (registerVerb && fromCash));
 
+      const isExpense=/(مصروف|مصاريف|صرفنا|دفعت|ادفع|دفعنا)/.test(text) || (registerVerb && /(بنزين|ديزل|سولار|محروقات|وقود|راتب|رواتب|ايجار|اجار|توصيل|نقل|صيانه|صيانة|كهرباء|ماء|انترنت|هاتف|اكل|طعام)/.test(text));
+
       if(isReturn||isExchange){
         const list=await customers();
         const customer=mentionedCustomer(list,prompt);
@@ -131,9 +144,16 @@ module.exports = function registerAgentOpsRoutes(ctx){
         return res.json({ok:true,version:OPS_VERSION,action:{type:isExchange?'open_customer_exchange':'open_customer_return',requiresConfirmation:false,payload:{customerId:customer.id,customerName:customer.name}},message:'سأفتح حساب '+customer.name+' على المبيعات حتى تختار البالة أو الكمية المراد '+(isExchange?'تبديلها.':'إرجاعها.')});
       }
 
+      if(isExpense && !hasCash){
+        const amount=amountFrom(prompt);
+        if(!(amount>0)) throw new Error('اذكر مبلغ المصروف بالأرقام أو بالكلام.');
+        const category=expenseCategory(prompt);
+        return res.json({ok:true,version:OPS_VERSION,action:{type:'record_expense',requiresConfirmation:true,payload:{category,amount,notes:prompt}},message:'تأكيد تسجيل مصروف '+amount.toFixed(2)+' د.أ ضمن '+category+'؟'});
+      }
+
       if(isCashIn||isCashOut){
         const amount=amountFrom(prompt);
-        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار. [NUM-V4]');
+        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار.');
         const type=isCashIn?'in':'out';
         return res.json({ok:true,version:OPS_VERSION,action:{type:'record_cash_movement',requiresConfirmation:true,payload:{type,amount,notes:prompt}},message:'تأكيد '+(type==='in'?'إدخال ':'إخراج ')+amount.toFixed(2)+' د.أ '+(type==='in'?'إلى':'من')+' الصندوق؟'});
       }
