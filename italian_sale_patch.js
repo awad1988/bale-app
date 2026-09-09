@@ -19,7 +19,7 @@
       el('italianSaleCommit').classList.add('hidden');
       return;
     }
-    const status=p.ok?'✅ كل الأصناف والكميات متوفرة':'⚠️ يوجد نقص ويجب عدم التسجيل';
+    const status=p.ok?'✅ كل الأصناف والكميات متوفرة':'⚠️ الفحص غير مكتمل ويجب عدم التسجيل';
     out.innerHTML=
       '<div style="margin-top:10px;padding:10px;border-radius:10px;background:'+(p.ok?'#ecfdf5':'#fee2e2')+';color:'+(p.ok?'#166534':'#991b1b')+'">'+
       '<b>'+status+'</b><br>'+p.customer.name+' — الرصيد الحالي '+money(p.customer.current_debt)+' د.أ<br>'+ 
@@ -41,13 +41,13 @@
   }
 
   async function commit(){
-    if(!confirm('تأكيد تسجيل المبيعة الحقيقية؟\n\nحمودة الإيطالي\n114 بالة\n19,060 د.أ\nآجل بالكامل — المدفوع 0\n\nسيتم خصم الأصناف من المخزون وزيادة دين الزبون.')) return;
+    if(!confirm('تأكيد تسجيل المبيعة الحقيقية؟\n\nحمودة الإيطالي\n114 بالة\n19,100 د.أ\nآجل بالكامل — المدفوع 0\n\nسيتم خصم الأصناف من المخزون وزيادة دين الزبون.')) return;
     const btn=el('italianSaleCommit');
     btn.disabled=true;
     btn.textContent='جاري التسجيل...';
     try{
       const b=await call('/api/v2/sales/italian-2026-09-09/commit',{method:'POST',body:'{}'});
-      el('italianSaleResult').innerHTML='<div style="margin-top:10px;padding:10px;border-radius:10px;background:#ecfdf5;color:#166534;font-weight:700">تم تسجيل المبيعة بنجاح ✅<br>114 بالة • 19,060 د.أ<br>رصيد حمودة الإيطالي الآن: '+money(b.debt)+' د.أ</div>';
+      el('italianSaleResult').innerHTML='<div style="margin-top:10px;padding:10px;border-radius:10px;background:#ecfdf5;color:#166534;font-weight:700">تم تسجيل المبيعة بنجاح ✅<br>114 بالة • 19,100 د.أ<br>رصيد حمودة الإيطالي الآن: '+money(b.debt)+' د.أ</div>';
       btn.classList.add('hidden');
       if(typeof refresh==='function') await refresh();
     }catch(e){
@@ -67,7 +67,7 @@
     card.style.marginBottom='12px';
     card.innerHTML=
       '<h3 style="margin-top:0">مبيعة حمودة الإيطالي المعتمدة</h3>'+ 
-      '<div class="muted">فاتورة حقيقية • 114 بالة • 19,060 د.أ • آجل بالكامل • مدفوع 0</div>'+ 
+      '<div class="muted">فاتورة حقيقية • 114 بالة • 19,100 د.أ • آجل بالكامل • مدفوع 0</div>'+ 
       '<div class="notice" style="margin-top:10px">التصحيحات المعتمدة: WINTER ABAYA عدد 5 وزن 25 كغ بدل WINTER FANCY، وLADY FLANNEL BLOUSE C عدد 3 بدل LADY WINTER BLOUSE، وLADY WINTER BLOUSE C عدد 5 بدل BODY SWEATER.</div>'+ 
       '<button id="italianSalePreview" class="btn secondary wide">فحص المبيعة قبل التسجيل</button>'+ 
       '<button id="italianSaleCommit" class="btn primary wide hidden">تسجيل المبيعة الآن</button>'+ 
