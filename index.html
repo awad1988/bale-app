@@ -834,7 +834,7 @@ async function confirmAgentAction(){
   }
 }
 function renderAll(){
- document.getElementById('mShip').textContent=data.shipments.length;document.getElementById('mBales').textContent=data.bales.length;document.getElementById('mCust').textContent=data.customers.length;document.getElementById('mDebt').textContent=money(data.customers.reduce((a,c)=>a+(c.debt||0),0));
+ document.getElementById('mShip').textContent=data.shipments.length;document.getElementById('mBales').textContent=data.bales.filter(b=>!/مباع/i.test(String(b.status||''))).length.toLocaleString('en-US');document.getElementById('mCust').textContent=data.customers.length;document.getElementById('mDebt').textContent=money(data.customers.reduce((a,c)=>a+(c.debt||0),0));
  document.getElementById('shipmentList').innerHTML=data.shipments.slice().reverse().map(s=>{const cnt=shipmentBales(s.id).length;const pending=!(s.customs||s.clearance||s.otherCost);return `<div class="item"><div class="top"><b>${s.container}</b><span class="pill ${pending?'pending':'ok'}">${pending?'بانتظار المصاريف':'تكلفة محدثة'}</span></div><div class="small">${s.supplier||'بدون مورد'} • ${s.season} • ${cnt} بالة • الصرف ${s.fx||'-'}</div></div>`}).join('')||'<div class="muted">لا توجد شحنات بعد.</div>';
  const sel=document.getElementById('baleShipment');sel.innerHTML=data.shipments.map(s=>`<option value="${s.id}">${s.container}</option>`).join('');
   document.getElementById('baleRows').innerHTML=data.bales.map(b=>`<tr><td><b>${b.nameAr||'-'}</b><div class="small">${b.nameEn||''}</div></td><td>${b.grade}</td><td>${b.weight||0}</td><td>${money(b.buyUsd)}</td><td>${money(baleJod(b))}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد بالات بعد.</td></tr>';
@@ -945,4 +945,5 @@ document.getElementById('cashMovementList').innerHTML=
 refresh();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
+<script src="/agent_voice_patch.js?v=3"></script>
 </body></html>
