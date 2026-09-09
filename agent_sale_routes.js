@@ -58,29 +58,42 @@ module.exports = function registerAgentSaleRoutes(ctx){
   }
 
   function parseQty(segment){
-    const m=segment.match(/(?:^|\s)(\d+)\s*(?:باله|بالات|بالة)?\b/i);
-    return m?Number(m[1]):0;
+    const s=String(segment||'');
+    // Prefer an explicit quantity tied to the bale word, especially spoken forms like "عدد 1 بالة".
+    const bale=s.match(/(?:عدد\s*)?(\d+)\s*(?:باله|بالات|بالة)\b/i);
+    if(bale) return Number(bale[1]);
+    const count=s.match(/\bعدد\s*(\d+)\b/i);
+    if(count) return Number(count[1]);
+    // Last resort: only accept a leading number when it is not clearly a price/value expression.
+    const lead=s.match(/^\s*(\d+)\b/);
+    if(lead&&!/(?:بقيمة|قيمه|قيمة|بسعر|سعر)\s*\d+/i.test(s.slice(0,(lead.index||0)+lead[0].length+20))) return Number(lead[1]);
+    return 0;
   }
   function parsePrice(segment,qty){
-    const unit=segment.match(/(?:بسعر|سعر|الباله|البالة)\s*(\d+(?:\.\d+)?)/i);
+    const s=String(segment||'');
+    // "بسعر" means price per bale.
+    const unit=s.match(/(?:بسعر|سعر)\s*(\d+(?:\.\d+)?)/i);
     if(unit){const p=Number(unit[1]);return {unit:p,total:p*qty}}
-    const total=segment.match(/(?:اجمالي|الإجمالي|المجموع|مجموع)\s*(\d+(?:\.\d+)?)/i);
+    // "بقيمة" / "إجمالي" means the total value of the line/invoice line.
+    const total=s.match(/(?:بقيمة|بقمه|قيمه|قيمة|اجمالي|الإجمالي|الاجمالي|المجموع|مجموع)\s*(\d+(?:\.\d+)?)/i);
     if(total){const t=Number(total[1]);return {unit:qty?t/qty:0,total:t}}
-    const nums=[...segment.matchAll(/\b(\d+(?:\.\d+)?)\b/g)].map(m=>({v:Number(m[1]),i:m.index||0}));
-    if(nums.length>=2){const p=nums[nums.length-1].v;return {unit:p,total:p*qty}}
+    // If wording says "البالة 200" treat it as unit price.
+    const balePrice=s.match(/(?:الباله|البالة)\s*(\d+(?:\.\d+)?)/i);
+    if(balePrice){const p=Number(balePrice[1]);return {unit:p,total:p*qty}}
     return {unit:0,total:0};
   }
 
   function matchProduct(segment,groups){
-    const ignored=new Set(['سجل','بيع','مبيع','مبيعه','بيعه','فاتوره','فاتورة','باله','بالات','بالة','بسعر','سعر','للباله','للبالة','دينار','اجمالي','الاجمالي','المجموع','مجموع','وزيد','كمان','وكمان','عدد']);
-    const tokens=norm(segment).split(' ').filter(x=>x.length>1&&!ignored.has(x)&&!/^[0-9.]+$/.test(x));
+    const ignored=new Set(['سجل','بيع','مبيع','مبيعه','بيعه','فاتوره','فاتورة','باله','بالات','بالة','بسعر','سعر','بقيمة','بقمه','قيمه','قيمة','للباله','للبالة','دينار','اجمالي','الاجمالي','المجموع','مجموع','وزيد','كمان','وكمان','عدد']);
+    const tokens=norm(segment).split(' ').map(x=>x==='EXTRA'?'EX':x).filter(x=>x.length>1&&!ignored.has(x)&&!/^[0-9.]+$/.test(x));
     const scored=groups.map(g=>{
       const text=norm([g.name_ar,g.name_en,g.grade,g.weight].join(' '));
       let score=0;
       for(const token of tokens){
         if(text.includes(token)) score+=token.length>=4?2:1;
       }
-      if(/\bEX\b/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=3;
+      if(/\b(?:EX|EXTRA)\b/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=3;
+      if(/(?:اكسترا|إكسترا)/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=3;
       if(/كريم/i.test(segment)&&String(g.grade).toLowerCase()==='cream') score+=3;
       if(/(?:^|\s)B(?:\s|$)/i.test(segment)&&g.grade==='B') score+=2;
       if(/(?:^|\s)A(?:\s|$)/i.test(segment)&&g.grade==='A') score+=2;
