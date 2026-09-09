@@ -127,6 +127,21 @@ async function supabaseRequest(endpoint, options = {}, attempt = 0) {
   }
 }
 
+async function supabaseRequestAll(endpoint) {
+  const rows = [];
+  const pageSize = 1000;
+
+  for (let offset = 0; offset < 100000; offset += pageSize) {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    const page = await supabaseRequest(`${endpoint}${separator}limit=${pageSize}&offset=${offset}`);
+    const items = Array.isArray(page) ? page : [];
+    rows.push(...items);
+    if (items.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 async function getAgentSnapshot() {
   const [customers, suppliers, payments, sales, expenses, shipments, bales, supplierPayments, cashMovements] = await Promise.all([
     supabaseRequest('customers?select=id,name,debt'),
@@ -135,7 +150,7 @@ async function getAgentSnapshot() {
     supabaseRequest('sales?select=customer_id,total_jod,sale_date,created_at'),
     supabaseRequest('expenses?select=amount,category,expense_date'),
     supabaseRequest('shipments?select=id,supplier_id,supplier,container_name,fx,customs,clearance,other_cost,purchase_date,arrival_date,created_at'),
-    supabaseRequest('bales?select=id,shipment_id,name_ar,name_en,grade,weight,buy_usd,status'),
+    supabaseRequestAll('bales?select=id,shipment_id,name_ar,name_en,grade,weight,buy_usd,status&order=id.asc'),
     supabaseRequest('supplier_payments?select=supplier_id,amount_jod,payment_date'),
     supabaseRequest('cash_movements?select=movement_type,amount,movement_date,notes')
   ]);
@@ -150,6 +165,42 @@ async function getAgentSnapshot() {
     bales: bales || [],
     supplierPayments: supplierPayments || [],
     cashMovements: cashMovements || []
+  };
+}
+
+function isSoldBale(item) {
+  return normalizeArabic(item?.status).includes('مباع');
+}
+
+function currentInventorySummary(snapshot) {
+  const allBales = snapshot.bales || [];
+  const availableBales = allBales.filter(item => !isSoldBale(item));
+  const shipmentById = new Map(snapshot.shipments.map(item => [String(item.id), item]));
+  const balesByShipment = new Map();
+
+  for (const bale of allBales) {
+    const shipmentId = String(bale.shipment_id);
+    balesByShipment.set(shipmentId, (balesByShipment.get(shipmentId) || 0) + 1);
+  }
+
+  const inventoryCost = availableBales.reduce((sum, bale) => {
+    const shipment = shipmentById.get(String(bale.shipment_id));
+    if (!shipment) return sum;
+    const shipmentBales = balesByShipment.get(String(bale.shipment_id)) || 1;
+    const landedShare = (
+      rowNum(shipment.customs) +
+      rowNum(shipment.clearance) +
+      rowNum(shipment.other_cost)
+    ) / shipmentBales;
+    return sum + (rowNum(bale.buy_usd) * rowNum(shipment.fx)) + landedShare;
+  }, 0);
+
+  return {
+    bales: availableBales.length,
+    soldBales: allBales.length - availableBales.length,
+    totalWeight: availableBales.reduce((sum, item) => sum + rowNum(item.weight), 0),
+    inventoryCost,
+    availableBales
   };
 }
 
@@ -478,21 +529,22 @@ function buildAgentResult(call, snapshot, mode) {
     return { mode, message: `رصيد المورد ${item.name}: ${rowNum(item.balance).toFixed(2)} د.أ`, action: { type: 'view_supplier_statement', requiresConfirmation: false, payload: { supplierId: item.id } } };
   }
   if (call.name === 'inventory_summary') {
-    const summary = businessSummary(snapshot);
-    const statusCounts = snapshot.bales.reduce((counts, item) => {
+    const summary = currentInventorySummary(snapshot);
+    const statusCounts = summary.availableBales.reduce((counts, item) => {
       const status = String(item.status || 'غير محدد');
       counts[status] = (counts[status] || 0) + 1;
       return counts;
     }, {});
     const statuses = Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`).join('، ');
+    const sold = summary.soldBales ? ` المباع المسجل: ${summary.soldBales} بالة.` : '';
     return {
       mode,
-      message: `المخزون المسجل: ${summary.bales} بالة بوزن ${summary.totalWeight.toFixed(2)} كغم. تكلفة البضاعة مع مصاريف الوصول: ${summary.inventoryCost.toFixed(2)} د.أ${statuses ? `. الحالات: ${statuses}.` : '.'}`,
+      message: `المخزون الحالي: ${summary.bales} بالة متاحة بوزن ${summary.totalWeight.toFixed(2)} كغم. قيمة المخزون الواصلة: ${summary.inventoryCost.toFixed(2)} د.أ.${sold}${statuses ? ` الحالات المتاحة: ${statuses}.` : ''}`,
       action: null
     };
   }
   if (call.name === 'inventory_search') {
-    const matches = findInventoryItems(snapshot.bales, args.item_name);
+    const matches = findInventoryItems(snapshot.bales.filter(item => !isSoldBale(item)), args.item_name);
     if (!matches.length) {
       return { mode, message: `لم أجد صنفًا مطابقًا لـ «${args.item_name || ''}» في المخزون.`, action: null };
     }
@@ -553,9 +605,10 @@ function buildAgentResult(call, snapshot, mode) {
   }
   if (call.name === 'business_summary') {
     const summary = businessSummary(snapshot);
+    const inventory = currentInventorySummary(snapshot);
     return {
       mode,
-      message: `الملخص: ${summary.customers} زبائن، ${summary.suppliers} موردين، ${summary.bales} بالات. المبيعات ${summary.sales.toFixed(2)} د.أ، ديون الزبائن ${summary.customerDebt.toFixed(2)} د.أ، رصيد الموردين ${summary.supplierDebt.toFixed(2)} د.أ، المصاريف ${summary.expenses.toFixed(2)} د.أ، ورصيد الصندوق ${summary.cashBalance.toFixed(2)} د.أ.`,
+      message: `الملخص: ${summary.customers} زبائن، ${summary.suppliers} موردين، ${inventory.bales} بالات متاحة. المبيعات ${summary.sales.toFixed(2)} د.أ، ديون الزبائن ${summary.customerDebt.toFixed(2)} د.أ، رصيد الموردين ${summary.supplierDebt.toFixed(2)} د.أ، المصاريف ${summary.expenses.toFixed(2)} د.أ، ورصيد الصندوق ${summary.cashBalance.toFixed(2)} د.أ.`,
       action: null
     };
   }
