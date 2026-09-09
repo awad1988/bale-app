@@ -4,8 +4,13 @@
 
   function normalizeFallbackPrompt(prompt){
     return String(prompt||'')
-      .replace(/\s+و(?!كيل\b|الزبون\b|العميل\b)(?=[^،؛\n]{1,90}(?:عدد\s*)?\d+\s*(?:باله|بالات|بالة)?[^،؛\n]{0,60}(?:بسعر|سعر|بقيمة|قيمة))/gi,'، ')
-      .replace(/\s+(?:وضيف|واضيف|وأضيف|وإضيف)\s+/gi,'، ');
+      // Split a second product even when Arabic waw is attached to the next word: "وجاكيت ... عدد 2 بالة بسعر 180".
+      // Do not split words like "وكيل" / "والزبون" / "والعميل".
+      .replace(/\s*و(?!كيل\b|الزبون\b|العميل\b)(?=[^،؛\n]{1,90}(?:عدد\s*)?\d+\s*(?:باله|بالات|بالة)\b[^،؛\n]{0,60}(?:بسعر|سعر|بقيمة|قيمة))/gi,'، ')
+      .replace(/\s*(?:وضيف|واضيف|وأضيف|وإضيف)\s+/gi,'، ')
+      // Normalize spoken/typed quantity forms so the safe local parser sees them consistently.
+      .replace(/عدد\s*(\d+)\s*(?:باله|بالة|بالات)/gi,'عدد $1 بالة')
+      .replace(/(\d+)\s*(?:باله|بالة|بالات)/gi,'$1 بالة');
   }
 
   window.fetch=async function(input,init){
