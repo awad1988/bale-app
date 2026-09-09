@@ -54,7 +54,7 @@
   }
   window.fetch=async function(input,init){
     const url=typeof input==='string'?input:String(input&&input.url||'');
-    if(!url.endsWith('/api/agent')&&!url.includes('/api/v10/agent/')&&!url.includes('/api/v11/agent/'))return originalFetch(input,init);
+    if(!url.endsWith('/api/agent')&&!url.includes('/api/v7/agent/')&&!url.includes('/api/v10/agent/')&&!url.includes('/api/v11/agent/'))return originalFetch(input,init);
     if(!init||!init.body)return originalFetch(input,init);
     try{
       const payload=JSON.parse(String(init.body));
