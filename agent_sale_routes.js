@@ -28,12 +28,79 @@ module.exports = function registerAgentSaleRoutes(ctx){
   function sold(status){return /مباع|محجوز|\[SALE_BATCH:/i.test(String(status||''))}
   function grade(v){const g=norm(v);if(g==='CREAM'||g==='كريم')return 'CREAM';if(g==='B')return 'B';return 'A'}
 
+  function productGroups(shipments,bales){
+    const shipMap=new Map(shipments.map(s=>[String(s.id),s]));
+    const groups=new Map();
+    for(const b of bales){
+      if(sold(b.status)) continue;
+      const season=shipMap.get(String(b.shipment_id))?.season||'شتوي';
+      const key=[norm(b.name_en||b.name_ar),grade(b.grade),Number(b.weight||0),norm(season),branchId(b.status)].join('|');
+      let g=groups.get(key);
+      if(!g){g={key,name_ar:b.name_ar||'',name_en:b.name_en||'',grade:grade(b.grade)==='CREAM'?'Cream':grade(b.grade),weight:Number(b.weight||0),season,branch_id:branchId(b.status),quantity:0};groups.set(key,g)}
+      g.quantity++;
+    }
+    return [...groups.values()];
+  }
+
+  function lineParts(prompt, customerName){
+    let body=String(prompt||'');
+    if(customerName) body=body.replace(new RegExp(customerName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),' ');
+    body=body
+      .replace(/(?:سجل|اعمل|أعمل|فاتورة|الفاتورة|مبيعة|بيعة|للزبون|للعميل|لزبون|لعميل)/gi,' ')
+      .replace(/\s+/g,' ').trim();
+    if(!body) return [];
+
+    const marked=body
+      .replace(/\s+(?:وزيد|وزيدلي|وكمان|كمان)\s+/gi,' || ')
+      .replace(/[،؛;\n]+/g,' || ')
+      .replace(/\s+و(?=\s*\d+\s+)/g,' || ');
+    return marked.split('||').map(x=>x.trim()).filter(Boolean);
+  }
+
+  function parseQty(segment){
+    const m=segment.match(/(?:^|\s)(\d+)\s*(?:باله|بالات|بالة)?\b/i);
+    return m?Number(m[1]):0;
+  }
+  function parsePrice(segment,qty){
+    const unit=segment.match(/(?:بسعر|سعر|الباله|البالة)\s*(\d+(?:\.\d+)?)/i);
+    if(unit){const p=Number(unit[1]);return {unit:p,total:p*qty}}
+    const total=segment.match(/(?:اجمالي|الإجمالي|المجموع|مجموع)\s*(\d+(?:\.\d+)?)/i);
+    if(total){const t=Number(total[1]);return {unit:qty?t/qty:0,total:t}}
+    const nums=[...segment.matchAll(/\b(\d+(?:\.\d+)?)\b/g)].map(m=>({v:Number(m[1]),i:m.index||0}));
+    if(nums.length>=2){const p=nums[nums.length-1].v;return {unit:p,total:p*qty}}
+    return {unit:0,total:0};
+  }
+
+  function matchProduct(segment,groups){
+    const ignored=new Set(['سجل','بيع','مبيع','مبيعه','بيعه','فاتوره','فاتورة','باله','بالات','بالة','بسعر','سعر','للباله','للبالة','دينار','اجمالي','الاجمالي','المجموع','مجموع','وزيد','كمان','وكمان','عدد']);
+    const tokens=norm(segment).split(' ').filter(x=>x.length>1&&!ignored.has(x)&&!/^[0-9.]+$/.test(x));
+    const scored=groups.map(g=>{
+      const text=norm([g.name_ar,g.name_en,g.grade,g.weight].join(' '));
+      let score=0;
+      for(const token of tokens){
+        if(text.includes(token)) score+=token.length>=4?2:1;
+      }
+      if(/\bEX\b/i.test(segment)&&/EX/i.test(g.name_en||'')) score+=3;
+      if(/كريم/i.test(segment)&&String(g.grade).toLowerCase()==='cream') score+=3;
+      if(/(?:^|\s)B(?:\s|$)/i.test(segment)&&g.grade==='B') score+=2;
+      if(/(?:^|\s)A(?:\s|$)/i.test(segment)&&g.grade==='A') score+=2;
+      const wm=segment.match(/(20|25|40)\s*(?:كغ|كيلو)/i);
+      if(wm&&Number(wm[1])===Number(g.weight)) score+=3;
+      return {g,score};
+    }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||b.g.quantity-a.g.quantity);
+    if(!scored.length) return {error:'لم أتعرف على الصنف: '+segment};
+    const top=scored[0].score;
+    const best=scored.filter(x=>x.score===top);
+    if(best.length>1) return {choice:best.slice(0,8).map(x=>x.g)};
+    return {product:best[0].g};
+  }
+
   app.post('/api/v7/agent/sale-preview', async function(req,res){
     try{
       const prompt=arabicDigits(req.body?.prompt||'').trim();
       if(!prompt) throw new Error('اكتب أمر المبيعة.');
       const t=norm(prompt);
-      if(!/(بيع|مبيع|بيعه)/.test(t)) throw new Error('الأمر لا يبدو كمبيعة.');
+      if(!/(بيع|مبيع|بيعه|فاتور)/.test(t)) throw new Error('الأمر لا يبدو كمبيعة أو فاتورة.');
 
       const [customers,shipments,bales]=await Promise.all([
         fetchAll('customers?select=id,name,debt,created_at&created_at=gt.2026-09-04T18%3A35%3A00Z'),
@@ -43,53 +110,47 @@ module.exports = function registerAgentSaleRoutes(ctx){
       const customer=[...customers].sort((a,b)=>String(b.name||'').length-String(a.name||'').length).find(c=>t.includes(norm(c.name)));
       if(!customer) throw new Error('لم أتعرف على اسم الزبون. اذكر اسم الزبون كما هو مسجل.');
 
-      const qtyMatch=prompt.match(/(\d+)\s*(?:باله|بالات|بالة)/i);
-      const qty=qtyMatch?Number(qtyMatch[1]):0;
-      if(!Number.isInteger(qty)||qty<=0) throw new Error('اذكر عدد البالات، مثال: 3 بالات.');
-
-      let unitPrice=0,total=0;
-      const unitMatch=prompt.match(/(?:بسعر|سعر)\s*(\d+(?:\.\d+)?)\s*(?:للباله|للبالة|للبالات|للبالة الواحدة)?/i);
-      const totalMatch=prompt.match(/(?:اجمالي|الإجمالي|المجموع|مجموع)\s*(\d+(?:\.\d+)?)/i);
-      if(unitMatch){unitPrice=Number(unitMatch[1]); total=unitPrice*qty}
-      else if(totalMatch){total=Number(totalMatch[1]); unitPrice=total/qty}
-      else throw new Error('اذكر السعر، مثال: بسعر 180 للبالة أو إجمالي 540.');
-
-      const shipMap=new Map(shipments.map(s=>[String(s.id),s]));
-      const groups=new Map();
-      for(const b of bales){
-        if(sold(b.status)) continue;
-        const season=shipMap.get(String(b.shipment_id))?.season||'شتوي';
-        const key=[norm(b.name_en||b.name_ar),grade(b.grade),Number(b.weight||0),norm(season),branchId(b.status)].join('|');
-        let g=groups.get(key);
-        if(!g){g={key,name_ar:b.name_ar||'',name_en:b.name_en||'',grade:grade(b.grade)==='CREAM'?'Cream':grade(b.grade),weight:Number(b.weight||0),season,branch_id:branchId(b.status),quantity:0};groups.set(key,g)}
-        g.quantity++;
+      const groups=productGroups(shipments,bales);
+      const segments=lineParts(prompt,String(customer.name||''));
+      if(!segments.length){
+        return res.json({ok:false,invoice_mode:true,needs_more:true,customer:{id:customer.id,name:customer.name,current_debt:Number(customer.debt||0)},message:'تمام، الفاتورة للزبون '+customer.name+'. اذكر أول صنف مع الكمية والسعر.'});
       }
 
-      const ignored=new Set(['سجل','بيع','مبيع','مبيعه','بيعه','للزبون','الزبون','باله','بالات','بسعر','سعر','للباله','دينار','اجمالي','المجموع','مجموع']);
-      const customerTokens=norm(customer.name).split(' ');
-      const tokens=t.split(' ').filter(x=>x.length>1&&!ignored.has(x)&&!customerTokens.includes(x)&&!/^[0-9.]+$/.test(x));
-      const scored=[...groups.values()].map(g=>{
-        const text=norm([g.name_ar,g.name_en,g.grade,g.weight].join(' '));
-        const score=tokens.reduce((s,x)=>s+(text.includes(x)?1:0),0);
-        return {g,score};
-      }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||b.g.quantity-a.g.quantity);
-      if(!scored.length) throw new Error('لم أتعرف على الصنف في المخزون. اذكر اسم الصنف بشكل أوضح.');
-      const bestScore=scored[0].score;
-      const best=scored.filter(x=>x.score===bestScore);
-      if(best.length>1){
-        return res.json({ok:false,needs_choice:true,message:'وجدت أكثر من تصنيف مطابق. افتح شاشة المبيعات واختر الوزن/الدرجة المطلوبة.',customer:{id:customer.id,name:customer.name},matches:best.slice(0,8).map(x=>x.g)});
+      const parsed=[];
+      for(let i=0;i<segments.length;i++){
+        const seg=segments[i];
+        const qty=parseQty(seg);
+        if(!Number.isInteger(qty)||qty<=0){
+          return res.json({ok:false,invoice_mode:true,needs_more:true,customer:{id:customer.id,name:customer.name,current_debt:Number(customer.debt||0)},message:'الصنف رقم '+(i+1)+' ناقصه عدد البالات. مثال: 3 بالات.',lines:parsed});
+        }
+        const mp=matchProduct(seg,groups);
+        if(mp.error) return res.status(400).json({error:mp.error});
+        if(mp.choice){
+          return res.json({ok:false,invoice_mode:true,needs_choice:true,message:'الصنف رقم '+(i+1)+' يطابق أكثر من تصنيف. حدد الوزن أو الدرجة.',customer:{id:customer.id,name:customer.name,current_debt:Number(customer.debt||0)},matches:mp.choice,lines:parsed});
+        }
+        const product=mp.product;
+        if(qty>product.quantity) throw new Error('الصنف '+(product.name_ar||product.name_en)+': المطلوب '+qty+' والمتاح '+product.quantity+' فقط.');
+        const price=parsePrice(seg,qty);
+        if(!(price.total>0)){
+          return res.json({ok:false,invoice_mode:true,needs_more:true,customer:{id:customer.id,name:customer.name,current_debt:Number(customer.debt||0)},message:'الصنف رقم '+(i+1)+' ناقصه السعر. مثال: بسعر 180 للبالة.',lines:parsed.concat([{product,quantity:qty}])});
+        }
+        parsed.push({product,quantity:qty,unit_price_jod:price.unit,total_jod:price.total});
       }
-      const product=best[0].g;
-      if(qty>product.quantity) throw new Error('المطلوب '+qty+' بالات، والمتاح من هذا التصنيف '+product.quantity+' فقط.');
 
+      const total=parsed.reduce((s,x)=>s+x.total_jod,0);
+      const totalQty=parsed.reduce((s,x)=>s+x.quantity,0);
+      const invoiceMode=/فاتور/i.test(prompt)||parsed.length>1;
       res.json({
         ok:true,
-        message:'فهمت المبيعة. راجعها ثم افتح شاشة المبيعات للتأكيد النهائي.',
+        invoice_mode:invoiceMode,
+        message:invoiceMode?'فهمت الفاتورة. تقدر تضيف صنف آخر أو تنقلها للفحص النهائي.':'فهمت المبيعة. راجعها ثم افتح شاشة المبيعات للتأكيد النهائي.',
         customer:{id:customer.id,name:customer.name,current_debt:Number(customer.debt||0)},
-        product,
-        quantity:qty,
-        unit_price_jod:unitPrice,
+        lines:parsed,
+        product:parsed[0]?.product,
+        quantity:parsed[0]?.quantity||0,
+        unit_price_jod:parsed[0]?.unit_price_jod||0,
         total_jod:total,
+        total_qty:totalQty,
         expected_debt_after:Number(customer.debt||0)+total
       });
     }catch(e){res.status(400).json({error:e.message})}
