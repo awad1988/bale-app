@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const port = Number(process.env.PORT || 80);
@@ -20,6 +21,14 @@ function rowNum(v) {
 
 function cleanDate(v) {
   return v || null;
+}
+
+function stableUuid(value) {
+  const chars = crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32).split('');
+  chars[12] = '5';
+  chars[16] = ((parseInt(chars[16], 16) & 3) | 8).toString(16);
+  const hex = chars.join('');
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
 }
 
 function normalizeArabic(value) {
@@ -653,6 +662,7 @@ res.set('Expires','0');
     supabaseRequest('suppliers?select=*&order=created_at.asc'),
 supabaseRequest('supplier_payments?select=*&order=payment_date.asc')
 ]);
+    const returnPaymentIds = new Set((sales || []).map(x => stableUuid('return-credit|' + x.id)));
     res.json({
       shipments: (shipments || []).map(x => ({
         id: x.id,
@@ -692,7 +702,8 @@ supabaseRequest('supplier_payments?select=*&order=payment_date.asc')
         id: x.id,
         customerId: x.customer_id,
         amount: rowNum(x.amount),
-        date: x.paid_at
+        date: x.paid_at,
+        isReturn: returnPaymentIds.has(String(x.id))
       })),
       sales: (sales || []).map(x => ({
   id: x.id,
