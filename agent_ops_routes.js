@@ -1,7 +1,7 @@
 module.exports = function registerAgentOpsRoutes(ctx){
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
-  const OPS_VERSION='2026-09-09-number-words-v2';
+  const OPS_VERSION='2026-09-09-number-words-v3';
 
   function norm(v){
     return String(v||'').trim().toLowerCase()
@@ -114,8 +114,15 @@ module.exports = function registerAgentOpsRoutes(ctx){
       const text=norm(prompt);
       const isReturn=/(ارجاع|ارجع|رجع|مرتجع|استرجاع)/.test(text);
       const isExchange=/(تبديل|بدل|استبدال)/.test(text);
-      const isCashIn=/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت).*?(صندوق|كاش|نقد)|(صندوق|كاش|نقد).*?(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/.test(text);
-      const isCashOut=/(طلع|اخرج|سحب|صرف|خذ|خد).*?(صندوق|كاش|نقد)|(صندوق|كاش|نقد).*?(طلع|اخرج|سحب|صرف|خذ|خد)/.test(text);
+
+      const hasCash=/(صندوق|كاش|نقد)/.test(text);
+      const registerVerb=/(^|\s)(سجل|سجللي|سجلي|سجله|سجلها)(\s|$)/.test(text);
+      const explicitIn=/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/.test(text);
+      const explicitOut=/(طلع|اخرج|سحب|صرف|خذ|خد)/.test(text);
+      const toCash=/(الى|لل|ل|في)\s*(?:ال)?(?:صندوق|كاش|نقد)/.test(text);
+      const fromCash=/من\s*(?:ال)?(?:صندوق|كاش|نقد)/.test(text);
+      const isCashIn=hasCash && (explicitIn || (registerVerb && toCash && !fromCash));
+      const isCashOut=hasCash && (explicitOut || (registerVerb && fromCash));
 
       if(isReturn||isExchange){
         const list=await customers();
@@ -126,7 +133,7 @@ module.exports = function registerAgentOpsRoutes(ctx){
 
       if(isCashIn||isCashOut){
         const amount=amountFrom(prompt);
-        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار. [NUM-V2]');
+        if(!(amount>0)) throw new Error('اذكر مبلغ حركة الصندوق، بالأرقام أو بالكلام مثل: مائة دينار. [NUM-V3]');
         const type=isCashIn?'in':'out';
         return res.json({ok:true,version:OPS_VERSION,action:{type:'record_cash_movement',requiresConfirmation:true,payload:{type,amount,notes:prompt}},message:'تأكيد '+(type==='in'?'إدخال ':'إخراج ')+amount.toFixed(2)+' د.أ '+(type==='in'?'إلى':'من')+' الصندوق؟'});
       }
