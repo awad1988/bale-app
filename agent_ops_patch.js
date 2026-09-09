@@ -53,7 +53,7 @@
       if(Object.prototype.hasOwnProperty.call(numWords,t)){
         current+=numWords[t];seen=true;continue;
       }
-      if(seen&&/(دينار|دنانير|الصندوق|صندوق|كاش|نقد|الى|من)/.test(t))break;
+      if(seen&&/(دينار|دنانير|الصندوق|صندوق|كاش|نقد|الى|الي|من)/.test(t))break;
     }
     return seen?total+current:0;
   }
@@ -62,13 +62,12 @@
     if(!/(صندوق|كاش|نقد)/i.test(s))return null;
     if(/(طلع|اخرج|سحب|سحبت|صرف|اطلع|خذ|خد)/i.test(s))return 'out';
     if(/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/i.test(s))return 'in';
-    if(/(سجل|سجللي)/i.test(s)){
+    if(/(سجل|سجللي|سجلي|سجل لي)/i.test(s)){
       if(/من\s+(?:ال)?(?:صندوق|كاش|نقد)/i.test(s))return 'out';
-      if(/الى\s+(?:ال)?(?:صندوق|كاش|نقد)/i.test(s))return 'in';
+      if(/(?:الى|الي)\s+(?:ال)?(?:صندوق|كاش|نقد)/i.test(s))return 'in';
     }
     return null;
   }
-  function hasCashAction(v){return !!cashType(v)}
   function isReturnOrExchange(v){
     return /(ارجاع|إرجاع|ارجع|رجع|مرتجع|استرجاع|تبديل|بدل|استبدال)/i.test(String(v||''));
   }
