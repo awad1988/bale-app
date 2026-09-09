@@ -57,11 +57,6 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
     return match ? String(match[1]) : '';
   }
 
-  function reversalTarget(notes) {
-    const match = String(notes || '').match(/\[REVERSAL_OF:([^\]]+)\]/i);
-    return match ? String(match[1]) : '';
-  }
-
   function branchId(status) {
     const match = String(status || '').match(/\[BRANCH:(\d+)\]/i);
     return match ? Number(match[1]) : 2;
@@ -121,20 +116,29 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
     try {
       const id = String(req.params.id || '').trim();
       if (!id) throw new Error('رقم الزبون غير صالح.');
-      const [customers, sales, payments] = await Promise.all([
+      const [customers, sales, payments, cashReturns] = await Promise.all([
         fetchAll('customers?select=id,name,phone,debt,created_at&id=eq.' + encodeURIComponent(id)),
         fetchAll('sales?select=id,customer_id,total_jod,notes,sale_date,created_at&customer_id=eq.' + encodeURIComponent(id) + '&order=created_at.asc'),
-        fetchAll('payments?select=id,customer_id,amount,paid_at&customer_id=eq.' + encodeURIComponent(id) + '&order=paid_at.asc')
+        fetchAll('payments?select=id,customer_id,amount,paid_at&customer_id=eq.' + encodeURIComponent(id) + '&order=paid_at.asc'),
+        fetchAll('cash_movements?select=id,amount,movement_date,reference_id,notes&reference_type=eq.sale_return&order=movement_date.asc')
       ]);
       const customer = customers[0];
       if (!customer) throw new Error('الزبون غير موجود.');
 
       const totalSales = sales.reduce((s,x)=>s+Number(x.total_jod||0),0);
-      const totalPayments = payments.reduce((s,x)=>s+Number(x.amount||0),0);
+      const saleById = new Map(sales.map(s=>[String(s.id),s]));
+      const returnPaymentToSale = new Map(sales.map(s=>[stableUuid('return-credit|' + s.id),String(s.id)]));
+      const returnPayments = payments.filter(p=>returnPaymentToSale.has(String(p.id)));
+      const regularPayments = payments.filter(p=>!returnPaymentToSale.has(String(p.id)));
+      const customerCashReturns = cashReturns.filter(x=>saleById.has(String(x.reference_id)));
+      const cashReturnBySale = new Map(customerCashReturns.map(x=>[String(x.reference_id),x]));
+      const returnPaymentBySale = new Map(returnPayments.map(p=>[returnPaymentToSale.get(String(p.id)),p]));
+      const returnedSaleIds = new Set([...cashReturnBySale.keys(),...returnPaymentBySale.keys()]);
+      const totalPayments = regularPayments.reduce((s,x)=>s+Number(x.amount||0),0);
+      const totalReturnCredit = returnPayments.reduce((s,x)=>s+Number(x.amount||0),0);
+      const totalReturns = [...returnedSaleIds].reduce((sum,saleId)=>sum+Number(saleById.get(saleId)?.total_jod||0),0);
       const currentDebt = Number(customer.debt||0);
-      const openingDebt = currentDebt - totalSales + totalPayments;
-      const reversedSaleIds = new Set(sales.map(s=>reversalTarget(s.notes)).filter(Boolean));
-      const paymentIds = new Set(payments.map(p=>String(p.id)));
+      const openingDebt = currentDebt - totalSales + totalPayments + totalReturnCredit;
 
       const movements = [];
       for (const s of sales) {
@@ -146,14 +150,12 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
           amount: Number(s.total_jod||0),
           notes: s.notes || '',
           lines: parseSaleLines(s.notes),
-          reversed: reversedSaleIds.has(String(s.id)),
+          returned: returnedSaleIds.has(String(s.id)),
           can_reverse: !!saleBatch(s.notes) &&
-            !reversalTarget(s.notes) &&
-            !reversedSaleIds.has(String(s.id)) &&
-            !paymentIds.has(stableUuid('payment|' + saleBatch(s.notes)))
+            !returnedSaleIds.has(String(s.id))
         });
       }
-      for (const p of payments) {
+      for (const p of regularPayments) {
         movements.push({
           id: p.id,
           type: 'payment',
@@ -162,6 +164,23 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
           amount: Number(p.amount||0),
           notes: '',
           lines: []
+        });
+      }
+      for (const saleId of returnedSaleIds) {
+        const original = saleById.get(String(saleId));
+        if (!original) continue;
+        const credit = returnPaymentBySale.get(String(saleId));
+        const cash = cashReturnBySale.get(String(saleId));
+        movements.push({
+          id: 'return-' + saleId,
+          type: 'return',
+          date: credit?.paid_at || cash?.movement_date || null,
+          created_at: credit?.paid_at || cash?.movement_date || null,
+          amount: Number(credit?.amount || 0),
+          returned_total: Number(original.total_jod || 0),
+          cash_refund: Number(cash?.amount || 0),
+          notes: cash?.notes || 'مرتجع مبيعة',
+          lines: parseSaleLines(original.notes)
         });
       }
       movements.sort((a,b)=>new Date(a.created_at||a.date||0)-new Date(b.created_at||b.date||0));
@@ -179,6 +198,7 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
         opening_debt: openingDebt,
         total_sales: totalSales,
         total_payments: totalPayments,
+        total_returns: totalReturns,
         movements: movements.slice().reverse()
       });
     } catch (e) {
@@ -196,24 +216,38 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
 
       const batchId = saleBatch(sale.notes);
       if (!batchId) throw new Error('هذه المبيعة قديمة وغير مرتبطة ببالات؛ لا يمكن عكسها تلقائيًا.');
-      if (reversalTarget(sale.notes)) throw new Error('لا يمكن عكس حركة عكس.');
       const originalPaymentId = stableUuid('payment|' + batchId);
       const originalPayment = await paymentById(originalPaymentId);
-      if (originalPayment && Number(originalPayment.amount || 0) > 0) {
-        throw new Error('هذه المبيعة معها دفعة نقدية. اعكسها بتسوية صندوق منفصلة حتى يبقى الحساب صحيحًا.');
-      }
+      const saleAmount = Math.abs(Number(sale.total_jod || 0));
+      const paidAmount = Math.min(saleAmount,Math.max(0,Number(originalPayment?.amount || 0)));
+      const creditAmount = Math.max(0,saleAmount-paidAmount);
+      const returnPaymentId = stableUuid('return-credit|' + saleId);
+      const existingCredit = await paymentById(returnPaymentId);
+      const existingCash = await fetchAll('cash_movements?select=id,amount&reference_type=eq.sale_return&reference_id=eq.' + encodeURIComponent(saleId));
+      const alreadyReturned = (!creditAmount || !!existingCredit) && (!paidAmount || existingCash.length>0);
 
-      const reversalTag = '[REVERSAL_OF:' + saleId + ']';
-      const existing = await fetchAll('sales?select=id,notes&notes=like.' + encodeURIComponent('*' + reversalTag + '*'));
-      const reversalSaleId = stableUuid('reversal-sale|' + saleId);
-      if (!existing.length) {
-        await supabaseRequest('rpc/record_sale', {
+      if (creditAmount > 0 && !existingCredit) {
+        await supabaseRequest('rpc/record_payment', {
           method: 'POST',
           body: JSON.stringify({
-            p_id: reversalSaleId,
+            p_id: returnPaymentId,
             p_customer_id: Number(sale.customer_id),
-            p_amount: -Math.abs(Number(sale.total_jod || 0)),
-            p_notes: reversalTag + ' عكس مبيعة وإرجاع البالات للمخزون'
+            p_amount: creditAmount
+          })
+        });
+      }
+
+      if (paidAmount > 0 && !existingCash.length) {
+        await supabaseRequest('cash_movements', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            movement_type: 'out',
+            amount: paidAmount,
+            movement_date: new Date().toISOString().slice(0,10),
+            reference_type: 'sale_return',
+            reference_id: saleId,
+            notes: '[RETURN_OF:' + saleId + '] رد نقدي لمرتجع مبيعة'
           })
         });
       }
@@ -225,8 +259,11 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
       const customer = customers[0] || {};
       res.json({
         ok: true,
-        already_reversed: existing.length > 0,
+        already_reversed: alreadyReturned,
         restored_bales: taggedBales.length,
+        returned_total: saleAmount,
+        debt_credit: creditAmount,
+        cash_refund: paidAmount,
         customer_id: sale.customer_id,
         customer: customer.name || '',
         debt: Number(customer.debt || 0)
