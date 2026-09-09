@@ -8,9 +8,23 @@
     if(!r.ok)throw new Error(b.error||'تعذر فهم الأمر');
     return b;
   }
+  function normalizeDigits(v){
+    return String(v||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/٬/g,'').replace(/٫/g,'.');
+  }
+  function cashMovement(v){
+    const raw=String(v||'');
+    const s=raw.replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه');
+    if(!/(صندوق|كاش|نقد)/i.test(s))return null;
+    let type=null;
+    if(/(دخل|ادخل|اودع|ايداع|قبض|حط|حطيت)/i.test(s))type='in';
+    if(/(طلع|اخرج|سحب|سحبت|صرف من|اطلع)/i.test(s))type='out';
+    if(!type)return null;
+    const nums=[...normalizeDigits(s).matchAll(/\d+(?:\.\d+)?/g)].map(m=>Number(m[0])).filter(n=>Number.isFinite(n)&&n>0);
+    return {type,amount:nums.length?nums[0]:0,notes:raw};
+  }
   function isOpsCommand(v){
     const s=String(v||'');
-    return /(ارجاع|إرجاع|ارجع|رجع|مرتجع|استرجاع|تبديل|بدل|استبدال|صندوق|كاش|نقد)/i.test(s);
+    return !!cashMovement(s)||/(ارجاع|إرجاع|ارجع|رجع|مرتجع|استرجاع|تبديل|بدل|استبدال)/i.test(s);
   }
   function showMessage(message,action){
     if(typeof window.showAgentMessage==='function'){
@@ -24,6 +38,16 @@
   window.runAgent=async function(){
     const prompt=el('agentPrompt')?.value.trim()||'';
     if(!prompt)return prevRun?prevRun():undefined;
+
+    const cash=cashMovement(prompt);
+    if(cash){
+      if(!(cash.amount>0))return showMessage('اذكر مبلغ حركة الصندوق.',null);
+      const action={type:'record_cash_movement',requiresConfirmation:true,payload:cash};
+      try{agentPendingAction=action}catch(_){ }
+      window.agentPendingAction=action;
+      return showMessage('تأكيد '+(cash.type==='in'?'إدخال ':'إخراج ')+cash.amount.toFixed(2)+' د.أ '+(cash.type==='in'?'إلى':'من')+' الصندوق؟',action);
+    }
+
     if(!isOpsCommand(prompt))return prevRun?prevRun():undefined;
     const button=el('agentRunButton');
     if(button){button.disabled=true;button.textContent='جاري فهم الأمر...'}
