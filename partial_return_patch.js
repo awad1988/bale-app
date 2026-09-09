@@ -14,11 +14,29 @@
     return [line.grade||'',line.weight?line.weight+' كغ':'',line.quantity?'عدد '+line.quantity:''].filter(Boolean).join(' • ');
   }
 
+  function saleReturnState(m){
+    if(m.type!=='sale')return {full:false,partial:false};
+    const lines=Array.isArray(m.lines)?m.lines:[];
+    const hasTracked=lines.some(x=>Number(x.returned_qty||0)>0 || Number(x.remaining_qty||0)>=0);
+    const anyReturned=lines.some(x=>Number(x.returned_qty||0)>0);
+    const allReturned=hasTracked && lines.length>0 && lines.every(x=>Number(x.remaining_qty||0)===0) && anyReturned;
+    const full=!!m.returned || allReturned;
+    const partial=!full && (!!m.partial_returned || anyReturned);
+    return {full,partial};
+  }
+
   function detailLine(line){
+    const originalQty=Number(line.quantity||0);
+    const returnedQty=Number(line.returned_qty||0);
+    const remainingQty=Number(line.remaining_qty||0);
+    const tracked=Object.prototype.hasOwnProperty.call(line,'returned_qty') || Object.prototype.hasOwnProperty.call(line,'remaining_qty');
     return `<div style="padding:8px 10px;margin-top:6px;background:#f8fafc;border-radius:10px">
       <b>${esc(line.name||'صنف')}</b>
       ${lineMeta(line)?`<div class="small">${esc(lineMeta(line))}</div>`:''}
       ${line.line_total_jod?`<div class="small">إجمالي الصنف: <b>${money(line.line_total_jod)} د.أ</b></div>`:''}
+      ${tracked?`<div class="small" style="margin-top:5px">الأصل: <b>${originalQty}</b> • المرتجع: <b>${returnedQty}</b> • المتبقي مبيع: <b>${remainingQty}</b></div>`:''}
+      ${tracked&&returnedQty>0&&remainingQty===0?'<div class="small" style="color:#166534;font-weight:700;margin-top:4px">هذا الصنف مرتجع بالكامل</div>':''}
+      ${tracked&&returnedQty>0&&remainingQty>0?'<div class="small" style="color:#92400e;font-weight:700;margin-top:4px">هذا الصنف مرتجع جزئيًا</div>':''}
     </div>`;
   }
 
@@ -37,10 +55,10 @@
       </div>`;
     }).join('');
     return `<div id="prChooser_${index}" class="hidden" style="margin-top:10px;border-top:1px solid #e2e8f0;padding-top:10px">
-      <div class="small" style="margin-bottom:8px">اختر الكمية المراد إرجاعها. النظام سيعدل الذمم أو الصندوق تلقائيًا حسب طريقة دفع الفاتورة.</div>
+      <div class="small" style="margin-bottom:8px">اختر الصنف والكمية المراد إرجاعها فقط. باقي الفاتورة يبقى مبيعًا.</div>
       ${rows}
       <div class="small" id="prEstimate_${index}" style="margin-top:10px;font-weight:700">قيمة المرتجع المختار: 0.00 د.أ</div>
-      <button class="btn danger wide prCommit" data-sale-id="${esc(m.id)}" data-index="${index}">تأكيد الإرجاع الجزئي</button>
+      <button class="btn danger wide prCommit" data-sale-id="${esc(m.id)}" data-index="${index}">تأكيد إرجاع الأصناف المختارة</button>
       <button class="btn secondary wide prAll" data-sale-id="${esc(m.id)}" data-index="${index}" style="margin-top:8px">إرجاع كل الكمية المتبقية</button>
     </div>`;
   }
@@ -49,25 +67,29 @@
     const sale=m.type==='sale';
     const returned=m.type==='return';
     const partial=m.type==='partial_return';
+    const state=saleReturnState(m);
     const title=partial?'مرتجع جزئي':returned?'مرتجع مبيعة':sale?'مبيعة':'دفعة';
     const sign=(returned||partial)?'−':sale?'+':'−';
     const shown=(returned||partial)?Number(m.returned_total||0):Math.abs(Number(m.amount||0));
     const lines=(m.lines||[]).map(detailLine).join('');
     const detailsId='prDetails_'+index;
-    const partialNote=m.partial_returned&&!m.returned?'<div class="small" style="color:#166534;font-weight:700;margin-top:6px">تم تسجيل مرتجع جزئي لهذه المبيعة</div>':'';
-    const fullNote=m.returned?'<div class="small" style="color:#166534;font-weight:700;margin-top:6px">تم إرجاع هذه المبيعة بالكامل</div>':'';
+    const statusNote=state.full
+      ?'<div class="small" style="color:#166534;font-weight:700;margin-top:6px">مرتجع كامل — تم إرجاع جميع أصناف وكميات هذه الفاتورة</div>'
+      :state.partial
+        ?'<div class="small" style="color:#92400e;font-weight:700;margin-top:6px">مرتجع جزئي — ما زال جزء من الفاتورة مبيعًا</div>'
+        :'';
     return `<div class="item" style="margin-top:10px" data-pr-sale-card="${sale?esc(m.id):''}">
       <div class="top"><b>${title}</b><b>${sign}${money(shown)} د.أ</b></div>
       <div class="small">التاريخ: ${dateFmt(m.date)}</div>
       <div class="small">الرصيد بعد الحركة: <b>${money(m.balance_after)} د.أ</b></div>
       ${(returned||partial)?`<div class="small" style="margin-top:6px">تخفيض من الدين: <b>${money(m.amount)} د.أ</b>${Number(m.cash_refund||0)>0?` • مردود كاش: <b>${money(m.cash_refund)} د.أ</b>`:''}</div>`:''}
-      ${partialNote}${fullNote}
+      ${statusNote}
       ${lines?`<button class="btn secondary wide prToggle" data-target="${detailsId}" style="margin-top:10px">عرض تفاصيل الفاتورة</button><div id="${detailsId}" class="hidden" style="margin-top:8px">${lines}</div>`:''}
-      ${m.can_return?`<button class="btn danger wide prOpen" data-index="${index}" style="margin-top:10px">إرجاع من هذه الفاتورة</button>${returnChooser(m,index)}`:''}
+      ${m.can_return&&!state.full?`<button class="btn danger wide prOpen" data-index="${index}" style="margin-top:10px">إرجاع صنف / كمية من هذه الفاتورة</button>${returnChooser(m,index)}`:''}
     </div>`;
   }
 
-  function bind(cid,statementData){
+  function bind(cid){
     document.querySelectorAll('.prToggle').forEach(btn=>{
       btn.onclick=()=>{
         const el=document.getElementById(btn.dataset.target);if(!el)return;
@@ -79,7 +101,7 @@
       btn.onclick=()=>{
         const chooser=document.getElementById('prChooser_'+btn.dataset.index);if(!chooser)return;
         chooser.classList.toggle('hidden');
-        btn.textContent=chooser.classList.contains('hidden')?'إرجاع من هذه الفاتورة':'إخفاء خيارات الإرجاع';
+        btn.textContent=chooser.classList.contains('hidden')?'إرجاع صنف / كمية من هذه الفاتورة':'إخفاء خيارات الإرجاع';
       };
     });
     document.querySelectorAll('.prQty').forEach(input=>{
@@ -99,7 +121,7 @@
       btn.onclick=async()=>{
         const chooser=document.getElementById('prChooser_'+btn.dataset.index);if(!chooser)return;
         const lines=[...chooser.querySelectorAll('.prQty')].map(x=>({line_index:Number(x.dataset.lineIndex),quantity:Number(x.value||0)})).filter(x=>x.quantity>0);
-        if(!lines.length)return alert('اختر كمية واحدة على الأقل للإرجاع.');
+        if(!lines.length)return alert('اختر صنفًا وكمية واحدة على الأقل للإرجاع.');
         await submitReturn(btn,cid,lines);
       };
     });
@@ -108,7 +130,7 @@
         const chooser=document.getElementById('prChooser_'+btn.dataset.index);if(!chooser)return;
         const lines=[...chooser.querySelectorAll('.prQty')].map(x=>({line_index:Number(x.dataset.lineIndex),quantity:Number(x.dataset.max||0)})).filter(x=>x.quantity>0);
         if(!lines.length)return alert('لا توجد كمية متبقية للإرجاع.');
-        if(!confirm('تأكيد إرجاع كل الكمية المتبقية من هذه الفاتورة؟'))return;
+        if(!confirm('تأكيد إرجاع كل الكمية المتبقية من هذه الفاتورة؟ عندها تصبح الفاتورة مرتجعة بالكامل.'))return;
         await submitReturn(btn,cid,lines,true);
       };
     });
@@ -122,7 +144,7 @@
         const input=chooser?.querySelector(`.prQty[data-line-index="${line.line_index}"]`);
         total+=line.quantity*Number(input?.dataset.unit||0);
       });
-      if(!confirm('تأكيد إرجاع الأصناف المختارة بقيمة تقريبية '+money(total)+' د.أ؟'))return;
+      if(!confirm('تأكيد إرجاع الأصناف المختارة فقط بقيمة تقريبية '+money(total)+' د.أ؟'))return;
     }
     const rid=btn.dataset.returnId||returnId();
     btn.dataset.returnId=rid;
@@ -155,7 +177,7 @@
         ${(r.movements||[]).map((m,i)=>movementHtml(m,i)).join('')||'<div class="muted">لا توجد حركات مسجلة.</div>'}
         <button class="btn secondary wide" id="prBack" style="margin-top:14px">رجوع للزبائن</button>
       </div>`;
-      bind(cid,r);
+      bind(cid);
       document.getElementById('prBack').onclick=()=>{if(typeof renderAll==='function')renderAll()};
     }catch(e){
       list.innerHTML=`<div class="card"><div style="color:#991b1b">${esc(e.message)}</div><button class="btn secondary wide" id="prBackErr" style="margin-top:12px">رجوع</button></div>`;
