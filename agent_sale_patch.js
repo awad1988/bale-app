@@ -5,9 +5,11 @@
   function el(id){return document.getElementById(id)}
   function money(v){return Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function isSaleCommand(v){const s=String(v||'');return /(بيع|مبيع|بيعة|بيعه|فاتورة|فاتوره)/.test(s)}
+  function isStatementCommand(v){const s=String(v||'');return /(كشف\s*(?:حساب)?|حساب\s+الزبون|افتح\s+(?:لي\s+)?كشف|اعرض\s+(?:لي\s+)?كشف)/i.test(s)}
   function isShortFollowup(v){
     const s=String(v||'').trim();
     if(!s||s.length>180)return false;
+    if(isStatementCommand(s))return false;
     if(invoiceMode)return true;
     return /(بالة|باله|بالات|كيلو|كغ|كريم|EX|اكسترا|إكسترا|A|B|بسعر|سعر|دفع|مدفوع|اجمالي|إجمالي|المجموع|مجموع|^[٠-٩0-9\s.]+$)/i.test(s);
   }
@@ -94,6 +96,11 @@
 
   window.runAgent=async function(){
     const typed=el('agentPrompt')?.value.trim()||'';
+    if(isStatementCommand(typed)){
+      invoiceMode=false;
+      pendingSalePrompt='';
+      return typeof originalRun==='function'?originalRun():undefined;
+    }
     const continuing=!!pendingSalePrompt&&isShortFollowup(typed)&&!isSaleCommand(typed);
     if(!isSaleCommand(typed)&&!continuing) return typeof originalRun==='function'?originalRun():undefined;
     const prompt=continuing?(pendingSalePrompt+' وزيد '+typed):typed;
