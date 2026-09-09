@@ -43,7 +43,7 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
       const [customers, sales, payments] = await Promise.all([
         fetchAll('customers?select=id,name,phone,debt,created_at&id=eq.' + encodeURIComponent(id)),
         fetchAll('sales?select=id,customer_id,total_jod,notes,sale_date,created_at&customer_id=eq.' + encodeURIComponent(id) + '&order=created_at.asc'),
-        fetchAll('payments?select=id,customer_id,amount,paid_at,created_at&customer_id=eq.' + encodeURIComponent(id) + '&order=created_at.asc')
+        fetchAll('payments?select=id,customer_id,amount,paid_at&customer_id=eq.' + encodeURIComponent(id) + '&order=paid_at.asc')
       ]);
       const customer = customers[0];
       if (!customer) throw new Error('الزبون غير موجود.');
@@ -69,8 +69,8 @@ module.exports = function registerCustomerStatementRoutes(ctx) {
         movements.push({
           id: p.id,
           type: 'payment',
-          date: p.paid_at || p.created_at || null,
-          created_at: p.created_at || p.paid_at || null,
+          date: p.paid_at || null,
+          created_at: p.paid_at || null,
           amount: Number(p.amount||0),
           notes: '',
           lines: []
