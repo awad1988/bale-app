@@ -892,7 +892,7 @@ const manualCashOut=cashMovements
   .filter(x=>x.type==='out')
   .reduce((sum,x)=>sum+Number(x.amount||0),0);
 
-const customerPayments=payments.reduce(
+const customerPayments=payments.filter(x=>!x.isReturn).reduce(
   (sum,x)=>sum+Number(x.amount||0),0
 );
 
