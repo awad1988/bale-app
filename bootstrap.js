@@ -53,7 +53,7 @@ replaceOrFail(
   const sales = snapshot.sales.reduce((sum, item) => sum + rowNum(item.total_jod), 0);
   const returnPaymentIds = new Set(snapshot.sales.map(item => stableUuid('return-credit|' + item.id)));
   for (const sale of snapshot.sales) {
-    const re = /\[RETURN_DATA:([A-Za-z0-9_-]+)\]/g;
+    const re = /\\[RETURN_DATA:([A-Za-z0-9_-]+)\\]/g;
     let match;
     while ((match = re.exec(String(sale.notes || '')))) {
       try {
@@ -64,8 +64,8 @@ replaceOrFail(
   }
   for (const bale of snapshot.bales) {
     const status = String(bale.status || '');
-    const saleMatch = status.match(/\[RETURN_OF:([^\]]+)\]/i);
-    const batchMatch = status.match(/\[RETURN_BATCH:([^\]]+)\]/i);
+    const saleMatch = status.match(/\\[RETURN_OF:([^\\]]+)\\]/i);
+    const batchMatch = status.match(/\\[RETURN_BATCH:([^\\]]+)\\]/i);
     if (saleMatch && batchMatch) {
       returnPaymentIds.add(stableUuid('partial-return-credit|' + saleMatch[1] + '|' + batchMatch[1]));
     }
