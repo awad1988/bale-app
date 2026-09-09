@@ -41,18 +41,10 @@
     let total=0,current=0,seen=false;
     for(const raw of tokens){
       let t=raw.replace(/^و(?=[\u0600-\u06ff])/,'');
-      if(t==='الف'){
-        current=(current||1)*1000;total+=current;current=0;seen=true;continue;
-      }
-      if(t==='الفين'){
-        total+=2000;current=0;seen=true;continue;
-      }
-      if(t==='الاف'){
-        current=(current||1)*1000;total+=current;current=0;seen=true;continue;
-      }
-      if(Object.prototype.hasOwnProperty.call(numWords,t)){
-        current+=numWords[t];seen=true;continue;
-      }
+      if(t==='الف'){current=(current||1)*1000;total+=current;current=0;seen=true;continue;}
+      if(t==='الفين'){total+=2000;current=0;seen=true;continue;}
+      if(t==='الاف'){current=(current||1)*1000;total+=current;current=0;seen=true;continue;}
+      if(Object.prototype.hasOwnProperty.call(numWords,t)){current+=numWords[t];seen=true;continue;}
       if(seen&&/(دينار|دنانير|الصندوق|صندوق|كاش|نقد|الى|الي|من)/.test(t))break;
     }
     return seen?total+current:0;
@@ -67,6 +59,11 @@
       if(/(?:الى|الي)\s+(?:ال)?(?:صندوق|كاش|نقد)/i.test(s))return 'in';
     }
     return null;
+  }
+  function isExpense(v){
+    const s=norm(v);
+    if(/(مصروف|مصاريف|صرفنا|دفعت|ادفع|دفعنا)/i.test(s))return true;
+    return /(سجل|سجللي|سجلي|سجل لي)/i.test(s) && /(بنزين|ديزل|سولار|محروقات|وقود|راتب|رواتب|ايجار|اجار|توصيل|نقل|صيانه|كهرباء|ماء|انترنت|هاتف|اكل|طعام)/i.test(s);
   }
   function isReturnOrExchange(v){
     return /(ارجاع|إرجاع|ارجع|رجع|مرتجع|استرجاع|تبديل|بدل|استبدال)/i.test(String(v||''));
@@ -115,6 +112,7 @@
       }
       return runOpsPreview(prompt);
     }
+    if(isExpense(prompt))return runOpsPreview(prompt);
     if(isReturnOrExchange(prompt))return runOpsPreview(prompt);
     return prevRun?prevRun():undefined;
   };
@@ -123,21 +121,30 @@
     let action=null;
     try{action=agentPendingAction}catch(_){action=window.agentPendingAction}
     action=action||window.agentPendingAction;
-    if(action?.type!=='record_cash_movement')return prevConfirm?prevConfirm():undefined;
+    if(action?.type!=='record_cash_movement' && action?.type!=='record_expense')return prevConfirm?prevConfirm():undefined;
     const payload=action.payload||{};
-    showMessage('جاري تسجيل حركة الصندوق...',null);
+    showMessage(action.type==='record_expense'?'جاري تسجيل المصروف...':'جاري تسجيل حركة الصندوق...',null);
     try{
-      await call('/api/cash-movements',{method:'POST',body:JSON.stringify({
-        type:payload.type,
-        amount:Number(payload.amount||0),
-        date:new Date().toISOString().slice(0,10),
-        notes:payload.notes||'سجلها الوكيل الذكي'
-      })});
+      if(action.type==='record_expense'){
+        await call('/api/expenses',{method:'POST',body:JSON.stringify({
+          category:payload.category||'عام',
+          amount:Number(payload.amount||0),
+          date:new Date().toISOString().slice(0,10),
+          notes:payload.notes||'سجله الوكيل الذكي'
+        })});
+      }else{
+        await call('/api/cash-movements',{method:'POST',body:JSON.stringify({
+          type:payload.type,
+          amount:Number(payload.amount||0),
+          date:new Date().toISOString().slice(0,10),
+          notes:payload.notes||'سجلها الوكيل الذكي'
+        })});
+      }
       if(typeof refresh==='function')await refresh();
       if(el('agentPrompt'))el('agentPrompt').value='';
       try{agentPendingAction=null}catch(_){ }
       window.agentPendingAction=null;
-      showMessage('تم تسجيل حركة الصندوق بنجاح.',null);
-    }catch(e){showMessage('تعذر تسجيل حركة الصندوق: '+e.message,null)}
+      showMessage(action.type==='record_expense'?'تم تسجيل المصروف بنجاح.':'تم تسجيل حركة الصندوق بنجاح.',null);
+    }catch(e){showMessage('تعذر تسجيل العملية: '+e.message,null)}
   };
 })();
