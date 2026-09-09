@@ -254,6 +254,10 @@ function localAgentCommand(prompt, snapshot) {
   const customer = findMentioned(snapshot.customers, prompt);
   const supplier = findMentioned(snapshot.suppliers, prompt);
   const asksTotal = ['اجمالي', 'مجموع', 'ملخص', 'كم'].some(word => text.includes(word));
+  const mentionsCustomer = text.includes('زبون') || text.includes('عميل') || text.includes('عليه');
+  const mentionsSupplier = text.includes('مورد') || text.includes('علينا');
+  const isFinancialAction = ['دفعه', 'دفعت', 'قبض', 'مبيع', 'بيعه', 'بيع', 'مصروف', 'صرف'].some(word => text.includes(word));
+  const asksAccount = !isFinancialAction && ['كشف', 'رصيد', 'دين', 'حساب', 'عليه', 'علينا'].some(word => text.includes(word));
   const expenseCategory = String(prompt)
     .replace(/.*(?:مصروف|صرف)\s*/i, '')
     .replace(/[٠-٩0-9.,٬٫+-]+.*/, '')
@@ -281,17 +285,27 @@ function localAgentCommand(prompt, snapshot) {
     }
     return { name: 'inventory_summary', arguments: {} };
   }
-  if (text.includes('كشف') && text.includes('حساب') && text.includes('مورد')) {
-    return { name: 'supplier_statement', arguments: { supplier_name: supplier?.name || '' } };
-  }
-  if (text.includes('كشف') && text.includes('حساب')) {
-    return { name: 'customer_statement', arguments: { customer_name: customer?.name || '' } };
-  }
-  if (supplier && (text.includes('رصيد') || text.includes('دين') || text.includes('حساب') || text.includes('علينا'))) {
-    return { name: 'supplier_statement', arguments: { supplier_name: supplier.name } };
-  }
-  if (customer && (text.includes('رصيد') || text.includes('دين') || text.includes('حساب') || text.includes('عليه'))) {
-    return { name: 'customer_statement', arguments: { customer_name: customer.name } };
+  if (asksAccount) {
+    if (mentionsSupplier) {
+      return { name: 'supplier_statement', arguments: { supplier_name: supplier?.name || '' } };
+    }
+    if (mentionsCustomer) {
+      return { name: 'customer_statement', arguments: { customer_name: customer?.name || '' } };
+    }
+    if (customer && supplier) {
+      const customerNameLength = normalizeArabic(customer.name).length;
+      const supplierNameLength = normalizeArabic(supplier.name).length;
+      if (customerNameLength >= supplierNameLength) {
+        return { name: 'customer_statement', arguments: { customer_name: customer.name } };
+      }
+      return { name: 'supplier_statement', arguments: { supplier_name: supplier.name } };
+    }
+    if (customer) {
+      return { name: 'customer_statement', arguments: { customer_name: customer.name } };
+    }
+    if (supplier) {
+      return { name: 'supplier_statement', arguments: { supplier_name: supplier.name } };
+    }
   }
   if ((text.includes('دفعه') || text.includes('دفعت') || text.includes('قبض')) && text.includes('مورد')) {
     return { name: 'record_supplier_payment', arguments: { supplier_name: supplier?.name || '', amount, notes: '' } };
