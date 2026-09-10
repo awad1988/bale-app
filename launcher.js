@@ -29,6 +29,7 @@ fs.readFileSync = function(file, options){
     );
 
     patched = patched
+      .replace('/customer_statement_patch.js?v=2', '/customer_statement_patch.js?v=3-share')
       .replace(
         "apikey: SUPABASE_KEY,",
         "apikey: SUPABASE_KEY,\n      'Authorization': `Bearer ${SUPABASE_KEY}`,"
@@ -50,6 +51,10 @@ Module.prototype._compile = function(content, filename){
       .replace(
         "app.get('*', (_req, res) => {",
         "require('./inventory_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./inventory_full_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./italian_sale_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./generic_sales_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./sales_profit_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./shipment_fx_defaults')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./customer_statement_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./partial_return_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./partial_return_financial_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./agent_sale_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./agent_gemini_sale_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./agent_voice_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./agent_ops_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./cleanup_test_customers_once')({ app, supabaseRequest, rowNum, normalizeArabic });\napp.get('*', (_req, res) => {"
+      )
+      .replace(
+        "require('./customer_statement_routes')({ app, supabaseRequest, rowNum, normalizeArabic });",
+        "require('./customer_statement_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./whatsapp_routes')({ app, supabaseRequest, rowNum, normalizeArabic });\nrequire('./backup_service')({ app, supabaseRequest, supabaseRequestAll, rowNum, normalizeArabic });"
       );
   }
   return originalCompile.call(this, content, filename);

@@ -3,15 +3,17 @@ const path = require('path');
 const Module = require('module');
 
 // Ensure the full-bale sale UI patch is loaded directly in the page.
-try {
-  const indexPath = path.join(__dirname, 'index.html');
-  let html = fs.readFileSync(indexPath, 'utf8');
-  if (!html.includes('/sale_patch.js')) {
-    html = html.replace('</body>', '<script src="/sale_patch.js?v=5"></script></body>');
-    fs.writeFileSync(indexPath, html, 'utf8');
+if (process.env.SKIP_BOOTSTRAP_FILE_PATCH !== '1') {
+  try {
+    const indexPath = path.join(__dirname, 'index.html');
+    let html = fs.readFileSync(indexPath, 'utf8');
+    if (!html.includes('/sale_patch.js')) {
+      html = html.replace('</body>', '<script src="/sale_patch.js?v=5"></script></body>');
+      fs.writeFileSync(indexPath, html, 'utf8');
+    }
+  } catch (error) {
+    console.warn('Could not inject sale_patch.js into index.html:', error.message);
   }
-} catch (error) {
-  console.warn('Could not inject sale_patch.js into index.html:', error.message);
 }
 
 const originalPath = path.join(__dirname, 'server.js');

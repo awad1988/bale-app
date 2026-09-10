@@ -4,7 +4,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node launcher.js"
+    "start": "node launcher.js",
+    "test": "node smoke_test.js"
   },
   "dependencies": {
     "express": "^4.21.2",
