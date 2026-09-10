@@ -32,7 +32,7 @@ fs.readFileSync = function(file, options){
       .replace('/customer_statement_patch.js?v=2', '/customer_statement_patch.js?v=3-share')
       .replace(
         "html = html.replace('</body>', '<script src=\"/agent_return_assist_patch.js?v=2-exchange\"></script></body>');",
-        "html = html.replace('</body>', '<script src=\"/agent_return_assist_patch.js?v=2-exchange\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/statement_share_patch.js?v=1\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/supplier_account_patch.js?v=3-no-delete\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/sale_product_search_patch.js?v=1\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/catalog_name_editor_patch.js?v=2-download\"></script></body>');"
+        "html = html.replace('</body>', '<script src=\"/agent_return_assist_patch.js?v=2-exchange\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/statement_share_patch.js?v=1\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/supplier_account_patch.js?v=3-no-delete\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/sale_product_search_patch.js?v=1\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/catalog_name_editor_patch.js?v=2-download\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/catalog_name_editor_button_fix.js?v=1\"></script></body>');"
       )
       .replace(
         "apikey: SUPABASE_KEY,",
