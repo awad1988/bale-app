@@ -1,8 +1,12 @@
 module.exports = function catalogNameEditorRoutes({ app, supabaseRequest }) {
+  async function currentShipmentIds() {
+    const shipments = await supabaseRequest('shipments?select=id,created_at&order=created_at.asc');
+    return (Array.isArray(shipments) ? shipments : []).map(s => String(s.id));
+  }
+
   app.get('/api/catalog-name-editor', async (_req, res) => {
     try {
-      const shipments = await supabaseRequest('shipments?select=id,container,created_at&order=created_at.asc');
-      const shipmentIds = (Array.isArray(shipments) ? shipments : []).map(s => String(s.id));
+      const shipmentIds = await currentShipmentIds();
       if (!shipmentIds.length) return res.json({ rows: [], shipmentCount: 0 });
 
       const bales = await supabaseRequest('bales?select=id,shipment_id,name_en,name_ar,status');
@@ -31,8 +35,10 @@ module.exports = function catalogNameEditorRoutes({ app, supabaseRequest }) {
       const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
       const clean = updates.filter(x => String(x.name_en || '').trim() && String(x.name_ar || '').trim());
       if (!clean.length) return res.json({ changes: [], totalBales: 0 });
-      const bales = await supabaseRequest('bales?select=id,name_en,name_ar,status');
-      const all = Array.isArray(bales) ? bales : [];
+
+      const shipmentIds = await currentShipmentIds();
+      const bales = await supabaseRequest('bales?select=id,shipment_id,name_en,name_ar,status');
+      const all = (Array.isArray(bales) ? bales : []).filter(b => shipmentIds.includes(String(b.shipment_id)));
       const changes = clean.map(u => {
         const en = String(u.name_en).trim();
         const ar = String(u.name_ar).trim();
@@ -56,12 +62,16 @@ module.exports = function catalogNameEditorRoutes({ app, supabaseRequest }) {
       const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
       const clean = updates.filter(x => String(x.name_en || '').trim() && String(x.name_ar || '').trim());
       if (!clean.length) throw new Error('لا توجد أسماء عربية جديدة للحفظ.');
+
+      const shipmentIds = await currentShipmentIds();
+      const bales = await supabaseRequest('bales?select=id,shipment_id,name_en');
+      const scoped = (Array.isArray(bales) ? bales : []).filter(b => shipmentIds.includes(String(b.shipment_id)));
+
       let total = 0;
       for (const u of clean) {
         const en = String(u.name_en).trim();
         const ar = String(u.name_ar).trim();
-        const matches = await supabaseRequest(`bales?name_en=ilike.${encodeURIComponent(en)}&select=id,name_en`);
-        const exact = (Array.isArray(matches) ? matches : []).filter(b => String(b.name_en || '').trim().toUpperCase() === en.toUpperCase());
+        const exact = scoped.filter(b => String(b.name_en || '').trim().toUpperCase() === en.toUpperCase());
         for (const b of exact) {
           await supabaseRequest(`bales?id=eq.${encodeURIComponent(b.id)}`, {
             method: 'PATCH',
