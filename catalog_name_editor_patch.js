@@ -24,8 +24,9 @@
     sec.innerHTML = `
       <div class="section-title"><h2>تعديل أسماء الأصناف</h2><span class="pill ok">عربي فقط</span></div>
       <div class="card">
-        <div class="small">يعرض كل الأسماء الإنجليزية الموجودة في الشحنتين، بدون تكرار. اكتب الاسم العربي الصحيح فقط. التعديل يشمل المتوفر والمباع والمرتجع، ولا يغيّر الكمية أو السعر أو الربط.</div>
+        <div class="small">يعرض كل الأسماء الإنجليزية الموجودة في الشحنتين، بدون تكرار. يمكنك تنزيل كشف وكتابة الاسم العربي الصحيح ثم إرساله لي. التعديل يشمل المتوفر والمباع والمرتجع، ولا يغيّر الكمية أو السعر أو الربط.</div>
         <button id="catalogNamesLoad" class="btn secondary wide" style="margin-top:10px">تحميل جدول الأصناف</button>
+        <button id="catalogNamesDownload" class="btn secondary wide hidden" style="margin-top:10px">تنزيل كشف الأسماء</button>
       </div>
       <div id="catalogNamesStatus" style="margin-top:10px"></div>
       <div id="catalogNamesList" class="list" style="margin-top:12px"></div>
@@ -35,6 +36,7 @@
     wrap.appendChild(sec);
 
     el('catalogNamesLoad').onclick = loadRows;
+    el('catalogNamesDownload').onclick = downloadSheet;
     el('catalogNamesPreview').onclick = preview;
     el('catalogNamesApply').onclick = apply;
   }
@@ -49,9 +51,40 @@
       status.textContent = `تم تحميل ${state.rows.length} اسم إنجليزي من ${r.shipmentCount || 0} شحنة.`;
       renderRows();
       el('catalogNamesPreview').classList.remove('hidden');
+      el('catalogNamesDownload').classList.remove('hidden');
     } catch (e) {
       status.textContent = e.message;
     }
+  }
+
+  function csvCell(v) {
+    return '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  }
+
+  function downloadSheet() {
+    if (!state.rows.length) return alert('حمّل جدول الأصناف أولاً.');
+    const header = ['#','English Name','Arabic Current','Arabic Correct','Total Bales','Sold Bales'];
+    const lines = [header.map(csvCell).join(',')];
+    state.rows.forEach((r, i) => {
+      lines.push([
+        i + 1,
+        r.name_en || '',
+        r.current_name_ar || '',
+        '',
+        Number(r.total || 0),
+        Number(r.sold || 0)
+      ].map(csvCell).join(','));
+    });
+    const csv = '\uFEFF' + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bale-catalog-arabic-names.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function renderRows() {
