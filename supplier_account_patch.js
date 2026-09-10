@@ -74,7 +74,6 @@
           <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
             ${a ? '' : `<button class="btn secondary" onclick="addSupplierPayment('${s.id}')">تسجيل دفعة</button>`}
             <button class="btn secondary" onclick="supplierStatement('${s.id}')">كشف حساب</button>
-            <button class="btn secondary" onclick="deleteSupplier('${s.id}')">حذف</button>
           </div>
         </div>`;
       }).join('');
