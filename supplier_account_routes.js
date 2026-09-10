@@ -29,8 +29,9 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
     ]
   };
 
-  const encoded = encodeURIComponent(JSON.stringify(account));
-  const notes = `${MARKER}${encoded}]`;
+  function encodeAccount(value) {
+    return `${MARKER}${encodeURIComponent(JSON.stringify(value))}]`;
+  }
 
   function parseAccount(notesValue) {
     const text = String(notesValue || '');
@@ -49,39 +50,24 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
     try {
       const found = await supabaseRequest(`suppliers?name=eq.${encodeURIComponent(SUPPLIER_NAME)}&select=id,name,balance,notes&limit=1`);
       const supplier = Array.isArray(found) ? found[0] : null;
+      const notes = encodeAccount(account);
 
       if (!supplier) {
         await supabaseRequest('suppliers', {
           method: 'POST',
           headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            name: SUPPLIER_NAME,
-            phone: '',
-            balance: account.currentBalance,
-            notes
-          })
+          body: JSON.stringify({ name: SUPPLIER_NAME, phone: '', balance: account.currentBalance, notes })
         });
-        console.log('Imported NOVATEX supplier account.');
         return;
       }
-
-      // Never overwrite an account that was already imported; this keeps later
-      // payments and edits intact across server restarts/redeploys.
       if (parseAccount(supplier.notes)) return;
-
-      // If a supplier with this exact name already has operational data, do not
-      // overwrite it automatically. This avoids damaging an existing account.
-      if (Number(supplier.balance || 0) !== 0 || String(supplier.notes || '').trim()) {
-        console.warn('NOVATEX supplier exists with data; skipped automatic statement import.');
-        return;
-      }
+      if (Number(supplier.balance || 0) !== 0 || String(supplier.notes || '').trim()) return;
 
       await supabaseRequest(`suppliers?id=eq.${encodeURIComponent(supplier.id)}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({ balance: account.currentBalance, notes })
       });
-      console.log('Imported NOVATEX statement into existing empty supplier account.');
     } catch (error) {
       console.warn('NOVATEX supplier import failed:', error.message);
     }
@@ -95,6 +81,52 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
       const parsed = parseAccount(supplier.notes);
       if (!parsed) return res.status(404).json({ error: 'لا يوجد كشف مستورد لهذا المورد' });
       res.json({ supplierId: supplier.id, supplierName: supplier.name, ...parsed });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/supplier-account/:id/entries', async (req, res) => {
+    try {
+      const id = req.params.id;
+      const x = req.body || {};
+      const type = String(x.type || '').trim();
+      const amount = Number(x.amount || 0);
+      if (!['purchase', 'payment'].includes(type)) throw new Error('نوع الحركة غير صحيح');
+      if (!(amount > 0)) throw new Error('أدخل مبلغًا أكبر من صفر');
+
+      const rows = await supabaseRequest(`suppliers?id=eq.${encodeURIComponent(id)}&select=id,name,balance,notes&limit=1`);
+      const supplier = Array.isArray(rows) ? rows[0] : null;
+      if (!supplier) throw new Error('المورد غير موجود');
+      const parsed = parseAccount(supplier.notes);
+      if (!parsed) throw new Error('هذا المورد لا يحتوي كشفًا مستوردًا');
+
+      const current = Number(parsed.currentBalance || supplier.balance || 0);
+      const newBalance = type === 'purchase' ? current + amount : current - amount;
+      const entry = {
+        date: x.date || new Date().toISOString().slice(0, 10),
+        type,
+        amount,
+        balance: newBalance,
+        ref: String(x.ref || '').trim(),
+        container: String(x.container || '').trim(),
+        bales: Number(x.bales || 0),
+        notes: String(x.notes || '').trim()
+      };
+
+      parsed.entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+      parsed.entries.push(entry);
+      parsed.currentBalance = newBalance;
+      parsed.totalPurchases = Number(parsed.totalPurchases || 0) + (type === 'purchase' ? amount : 0);
+      parsed.totalPayments = Number(parsed.totalPayments || 0) + (type === 'payment' ? amount : 0);
+
+      await supabaseRequest(`suppliers?id=eq.${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ balance: newBalance, notes: encodeAccount(parsed) })
+      });
+
+      res.json({ ok: true, balance: newBalance, account: parsed });
     } catch (error) {
       res.status(400).json({ error: error.message });
     }
