@@ -31,6 +31,10 @@ fs.readFileSync = function(file, options){
     patched = patched
       .replace('/customer_statement_patch.js?v=2', '/customer_statement_patch.js?v=3-share')
       .replace(
+        "html = html.replace('</body>', '<script src=\"/agent_return_assist_patch.js?v=2-exchange\"></script></body>');",
+        "html = html.replace('</body>', '<script src=\"/agent_return_assist_patch.js?v=2-exchange\"></script></body>');\n    html = html.replace('</body>', '<script src=\"/statement_share_patch.js?v=1\"></script></body>');"
+      )
+      .replace(
         "apikey: SUPABASE_KEY,",
         "apikey: SUPABASE_KEY,\n      'Authorization': `Bearer ${SUPABASE_KEY}`,"
       )
