@@ -1,4 +1,4 @@
-const CACHE='bale-app-v5-exchange';
+const CACHE='bale-app-v6-speed';
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -7,33 +7,59 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.map(key => caches.delete(key)))
+      Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))
     ).then(() => self.clients.claim())
   );
 });
 
+async function fetchAndCache(request){
+  const response=await fetch(request,{cache:'no-store'});
+  if(response && response.ok){
+    const cache=await caches.open(CACHE);
+    await cache.put(request,response.clone());
+  }
+  return response;
+}
+
 self.addEventListener('fetch', event => {
-  if (event.request.mode === 'navigate') {
+  const request=event.request;
+  if(request.method !== 'GET') return;
+
+  const url=new URL(request.url);
+  if(url.origin !== self.location.origin) return;
+  if(url.pathname.startsWith('/api/')) return;
+
+  if(request.mode === 'navigate'){
     event.respondWith((async()=>{
-      const response=await fetch(event.request,{cache:'no-store'});
-      const type=response.headers.get('content-type')||'';
-      if(!type.includes('text/html')) return response;
-      let html=await response.text();
-      const scripts=[
-        '<script src="/sale_patch.js?v=6"></script>',
-        '<script src="/agent_sale_patch.js?v=7"></script>',
-        '<script src="/agent_ops_patch.js?v=3"></script>'
-      ];
-      for(const script of scripts){
-        const src=(script.match(/src="([^"]+)/)||[])[1]||'';
-        const base=src.split('?')[0].split('/').pop();
-        if(base && !html.includes(base)) html=html.replace('</body>',script+'</body>');
+      const cache=await caches.open(CACHE);
+      const cached=await cache.match(request);
+      const networkPromise=fetchAndCache(request).catch(()=>null);
+
+      if(cached){
+        event.waitUntil(networkPromise);
+        return cached;
       }
-      const headers=new Headers(response.headers);
-      headers.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
-      headers.set('Pragma','no-cache');
-      headers.set('Expires','0');
-      return new Response(html,{status:response.status,statusText:response.statusText,headers});
+
+      const network=await networkPromise;
+      if(network) return network;
+      return new Response('تعذر الاتصال بالخادم',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}});
+    })());
+    return;
+  }
+
+  if(/\.(?:js|css|json|png|jpg|jpeg|svg|webp|ico)$/i.test(url.pathname)){
+    event.respondWith((async()=>{
+      const cache=await caches.open(CACHE);
+      const cached=await cache.match(request);
+      const networkPromise=fetchAndCache(request).catch(()=>null);
+
+      if(cached){
+        event.waitUntil(networkPromise);
+        return cached;
+      }
+
+      const network=await networkPromise;
+      return network || new Response('',{status:504});
     })());
   }
 });
