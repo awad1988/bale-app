@@ -1,7 +1,7 @@
 module.exports = function registerAgentOpsRoutes(ctx){
   const app = ctx.app;
   const supabaseRequest = ctx.supabaseRequest;
-  const OPS_VERSION='2026-09-09-expense-v1';
+  const OPS_VERSION='2026-09-13-payments-v2';
 
   function norm(v){
     return String(v||'').trim().toLowerCase()
@@ -84,7 +84,7 @@ module.exports = function registerAgentOpsRoutes(ctx){
       if(t==='مليونين'){total+=2000000;current=0;seen=true;continue;}
       const n=tokenNumber(raw);
       if(n!==null){current+=n;seen=true;continue;}
-      if(seen&&/(دينار|دنانير|ليره|ليرة|الصندوق|صندوق|كاش|نقد|من|الى|الي)/.test(raw))break;
+      if(seen&&/(دينار|دنانير|ليره|ليرة|الصندوق|صندوق|كاش|نقد|من|الى|الي|لدى|عند|للزبون|للمورد)/.test(raw))break;
     }
     return seen?total+current:0;
   }
@@ -92,14 +92,20 @@ module.exports = function registerAgentOpsRoutes(ctx){
   function amountFrom(v){
     const s=arabicDigits(v);
     const matches=[...s.matchAll(/\d+(?:\.\d+)?/g)].map(m=>Number(m[0])).filter(n=>Number.isFinite(n)&&n>0);
-    if(matches.length)return matches[matches.length-1];
+    if(matches.length)return matches[0];
     return wordsNumber(v);
   }
   async function customers(){
     const rows=await supabaseRequest('customers?select=id,name,debt,created_at&order=created_at.asc');
     return Array.isArray(rows)?rows:[];
   }
-  function mentionedCustomer(items,prompt){
+  async function suppliers(){
+    try{
+      const rows=await supabaseRequest('suppliers?select=id,name,balance,created_at&order=created_at.asc');
+      return Array.isArray(rows)?rows:[];
+    }catch(_){ return []; }
+  }
+  function mentioned(items,prompt){
     const text=norm(prompt);
     return [...items].sort((a,b)=>String(b.name||'').length-String(a.name||'').length)
       .find(x=>norm(x.name)&&text.includes(norm(x.name)))||null;
@@ -136,12 +142,45 @@ module.exports = function registerAgentOpsRoutes(ctx){
       const isCashOut=hasCash && (explicitOut || (registerVerb && fromCash));
 
       const isExpense=/(مصروف|مصاريف|صرفنا|دفعت|ادفع|دفعنا)/.test(text) || (registerVerb && /(بنزين|ديزل|سولار|محروقات|وقود|راتب|رواتب|ايجار|اجار|توصيل|نقل|صيانه|صيانة|كهرباء|ماء|انترنت|هاتف|اكل|طعام)/.test(text));
+      const paymentWords=/(دفع|دفعة|دفعه|سدّد|سدد|قبضت|استلمت|استلام|تحصيل)/.test(text);
+      const supplierHint=/(مورد|للمورد|ل مورد|supplier)/.test(text);
+      const customerHint=/(زبون|عميل|للزبون|للعميل|من الزبون|من العميل)/.test(text);
 
       if(isReturn||isExchange){
         const list=await customers();
-        const customer=mentionedCustomer(list,prompt);
+        const customer=mentioned(list,prompt);
         if(!customer) throw new Error('اذكر اسم الزبون المسجل حتى أفتح مبيعاته للإرجاع أو التبديل.');
         return res.json({ok:true,version:OPS_VERSION,action:{type:isExchange?'open_customer_exchange':'open_customer_return',requiresConfirmation:false,payload:{customerId:customer.id,customerName:customer.name}},message:'سأفتح حساب '+customer.name+' على المبيعات حتى تختار البالة أو الكمية المراد '+(isExchange?'تبديلها.':'إرجاعها.')});
+      }
+
+      if(paymentWords && !hasCash && !isExpense){
+        const amount=amountFrom(prompt);
+        if(!(amount>0)) throw new Error('اذكر مبلغ الدفعة بالأرقام أو بالكلام.');
+
+        if(supplierHint){
+          const list=await suppliers();
+          const supplier=mentioned(list,prompt);
+          if(!supplier) throw new Error('اذكر اسم المورد كما هو مسجل.');
+          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_supplier_payment',requiresConfirmation:true,payload:{supplierId:supplier.id,supplierName:supplier.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ للمورد '+supplier.name+'؟'});
+        }
+
+        const list=await customers();
+        const customer=mentioned(list,prompt);
+        if(customer || customerHint){
+          if(!customer) throw new Error('اذكر اسم الزبون كما هو مسجل.');
+          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_customer_payment',requiresConfirmation:true,payload:{customerId:customer.id,customerName:customer.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ من الزبون '+customer.name+'؟'});
+        }
+
+        // If no explicit supplier/customer word was used, resolve by exact known name.
+        const [clist,slist]=await Promise.all([customers(),suppliers()]);
+        const customer=mentioned(clist,prompt);
+        const supplier=mentioned(slist,prompt);
+        if(customer && !supplier){
+          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_customer_payment',requiresConfirmation:true,payload:{customerId:customer.id,customerName:customer.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ من الزبون '+customer.name+'؟'});
+        }
+        if(supplier && !customer){
+          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_supplier_payment',requiresConfirmation:true,payload:{supplierId:supplier.id,supplierName:supplier.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ للمورد '+supplier.name+'؟'});
+        }
       }
 
       if(isExpense && !hasCash){
