@@ -68,6 +68,12 @@
   function isReturnOrExchange(v){
     return /(ارجاع|إرجاع|ارجع|رجع|مرتجع|استرجاع|تبديل|بدل|استبدال)/i.test(String(v||''));
   }
+  function isPayment(v){
+    const s=norm(v);
+    if(/(صندوق|كاش|نقد)/i.test(s))return false;
+    if(isExpense(s))return false;
+    return /(دفع|دفعه|دفعة|سدد|قبضت|استلمت|استلام|تحصيل)/i.test(s);
+  }
   function showMessage(message,action){
     if(typeof window.showAgentMessage==='function'){
       window.agentPendingAction=action||null;
@@ -112,6 +118,7 @@
       }
       return runOpsPreview(prompt);
     }
+    if(isPayment(prompt))return runOpsPreview(prompt);
     if(isExpense(prompt))return runOpsPreview(prompt);
     if(isReturnOrExchange(prompt))return runOpsPreview(prompt);
     return prevRun?prevRun():undefined;
