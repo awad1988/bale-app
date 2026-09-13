@@ -4,14 +4,27 @@ module.exports = function registerStartupDataRoutes(ctx){
 
   function num(v){ return v == null ? 0 : Number(v); }
 
+  async function fetchAllLight(basePath){
+    const out=[];
+    const pageSize=1000;
+    for(let offset=0; offset<100000; offset+=pageSize){
+      const sep=basePath.includes('?')?'&':'?';
+      const page=await supabaseRequest(basePath+sep+'limit='+pageSize+'&offset='+offset);
+      if(!Array.isArray(page) || !page.length) break;
+      out.push(...page);
+      if(page.length<pageSize) break;
+    }
+    return out;
+  }
+
   app.get('/api/v12/data/fast', async function(_req,res){
     try{
       const [shipments,bales,customers,payments,sales,expenses,cashMovements,suppliers,supplierPayments] = await Promise.all([
         supabaseRequest('shipments?select=id,supplier_id,supplier,container_name,purchase_date,arrival_date,created_at,fx,season,customs,clearance,other_cost,notes&order=created_at.asc'),
-        // Keep this payload light, but include enough bale data for dashboard and shipment counts.
-        supabaseRequest('bales?select=id,shipment_id,status&order=created_at.asc'),
-        // Match the same customer filter used by the main /api/data route so the fast screen
-        // never shows deleted/test customers and then changes a second later.
+        // Supabase/PostgREST commonly caps one response at 1000 rows. Page the very small
+        // bale projection so the first dashboard render gets the exact same bale count as
+        // the later full inventory load, without downloading full bale records.
+        fetchAllLight('bales?select=id,shipment_id,status&order=created_at.asc'),
         supabaseRequest('customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18:35:00Z&order=created_at.asc'),
         supabaseRequest('payments?select=id,customer_id,amount,paid_at&order=paid_at.asc'),
         supabaseRequest('sales?select=id,customer_id,total_jod,sale_date,created_at,notes'),
