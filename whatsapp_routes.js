@@ -41,7 +41,10 @@ module.exports = function registerWhatsAppRoutes(ctx) {
       }
 
       const to = normalizePhone(req.body?.phone);
-      const message = String(req.body?.message || '').trim();
+      let message = String(req.body?.message || '').trim();
+      message = message.replace(/^وكالة البالة(?:\r?\n|\s*)/u, 'ALMADINAH\n');
+      if (!message.startsWith('ALMADINAH')) message = 'ALMADINAH\n' + message.replace(/^ALMADINAH\s*/u, '');
+
       if (!/^9627\d{8}$/.test(to)) throw new Error('رقم واتساب غير صالح. استخدم رقمًا أردنيًا صحيحًا.');
       if (!message) throw new Error('كشف الحساب فارغ.');
       if (message.length > 4096) throw new Error('كشف الحساب طويل جدًا للإرسال برسالة واحدة.');
