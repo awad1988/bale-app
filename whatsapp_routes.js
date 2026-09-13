@@ -81,7 +81,18 @@ module.exports = function registerWhatsAppRoutes(ctx) {
         }
       );
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body?.error?.message || `WhatsApp error ${response.status}`);
+      if (!response.ok) {
+        const metaError = body?.error || {};
+        console.error('WhatsApp Meta API error', {
+          http_status: response.status,
+          code: metaError.code ?? null,
+          error_subcode: metaError.error_subcode ?? null,
+          type: metaError.type ?? null,
+          message: metaError.message ?? null,
+          fbtrace_id: metaError.fbtrace_id ?? null
+        });
+        throw new Error(metaError.message || `WhatsApp error ${response.status}`);
+      }
       res.json({ ok: true, message_id: body?.messages?.[0]?.id || null });
     } catch (error) {
       res.status(400).json({ error: error.message });
