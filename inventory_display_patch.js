@@ -3,6 +3,7 @@
   let inventoryLoading=false;
   let pendingForceRefresh=false;
   let lastInventoryLoad=0;
+  let mutationRefreshTimer=null;
   const TOTAL_CUSTOMS_EXPENSES_JOD=48000;
   const CUSTOMS_ALLOCATION_BALES=2773;
   const FIXED_EXPENSE_PER_BALE=TOTAL_CUSTOMS_EXPENSES_JOD/CUSTOMS_ALLOCATION_BALES;
@@ -60,9 +61,17 @@
       inventoryLoading=false;
       if(pendingForceRefresh){
         pendingForceRefresh=false;
-        setTimeout(()=>loadFullInventory(true),80);
+        setTimeout(()=>loadFullInventory(true),120);
       }
     }
+  }
+
+  function scheduleMutationRefresh(){
+    if(mutationRefreshTimer) clearTimeout(mutationRefreshTimer);
+    mutationRefreshTimer=setTimeout(()=>{
+      mutationRefreshTimer=null;
+      loadFullInventory(true);
+    },180);
   }
 
   function renderAggregatedInventory(){
@@ -145,10 +154,7 @@
       const method=String((init&&init.method)||(input&&input.method)||'GET').toUpperCase();
       const url=typeof input==='string' ? input : (input&&input.url)||'';
       const response=await originalFetch(input,init);
-      if(response.ok && affectsInventory(url,method)){
-        setTimeout(()=>loadFullInventory(true),60);
-        setTimeout(()=>loadFullInventory(true),320);
-      }
+      if(response.ok && affectsInventory(url,method)) scheduleMutationRefresh();
       return response;
     };
     wrapped.__inventoryLiveSync=true;
@@ -174,7 +180,7 @@
 
     installFetchSync();
     window.refreshInventoryNow=function(){ return loadFullInventory(true); };
-    document.addEventListener('inventory:changed',()=>loadFullInventory(true));
+    document.addEventListener('inventory:changed',scheduleMutationRefresh);
 
     document.addEventListener('click',function(e){
       const el=e.target&&e.target.closest?e.target.closest('button,a,[role="button"]'):null;
@@ -187,7 +193,7 @@
     },true);
 
     renderAggregatedInventory();
-    setTimeout(()=>loadFullInventory(true),0);
+    if(inventoryIsVisible()) setTimeout(()=>loadFullInventory(true),0);
   }
 
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install); else install();
