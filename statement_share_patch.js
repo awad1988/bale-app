@@ -30,7 +30,7 @@
     });
     const label=(r.movements||[]).length>latest.length?`آخر ${latest.length} حركة من أصل ${(r.movements||[]).length}`:'حركة الحساب';
     return [
-      'وكالة البالة',
+      'ALMADINAH',
       `كشف حساب: ${c.name||''}`,
       `الرصيد الحالي: ${money(c.current_debt)} د.أ`,
       `إجمالي المبيعات: ${money(r.total_sales)} د.أ`,
