@@ -6,9 +6,13 @@ module.exports = function registerStartupDataRoutes(ctx){
 
   app.get('/api/v12/data/fast', async function(_req,res){
     try{
-      const [shipments,customers,payments,sales,expenses,cashMovements,suppliers,supplierPayments] = await Promise.all([
+      const [shipments,bales,customers,payments,sales,expenses,cashMovements,suppliers,supplierPayments] = await Promise.all([
         supabaseRequest('shipments?select=id,supplier_id,supplier,container_name,purchase_date,arrival_date,created_at,fx,season,customs,clearance,other_cost,notes&order=created_at.asc'),
-        supabaseRequest('customers?select=id,name,phone,debt,created_at&order=created_at.asc'),
+        // Keep this payload light, but include enough bale data for dashboard and shipment counts.
+        supabaseRequest('bales?select=id,shipment_id,status&order=created_at.asc'),
+        // Match the same customer filter used by the main /api/data route so the fast screen
+        // never shows deleted/test customers and then changes a second later.
+        supabaseRequest('customers?select=id,name,phone,debt,created_at&created_at=gt.2026-09-04T18:35:00Z&order=created_at.asc'),
         supabaseRequest('payments?select=id,customer_id,amount,paid_at&order=paid_at.asc'),
         supabaseRequest('sales?select=id,customer_id,total_jod,sale_date,created_at,notes'),
         supabaseRequest('expenses?select=id,category,amount,expense_date,notes&order=expense_date.asc'),
@@ -28,7 +32,7 @@ module.exports = function registerStartupDataRoutes(ctx){
           fx:num(x.fx),season:x.season,customs:num(x.customs),clearance:num(x.clearance),
           otherCost:num(x.other_cost),notes:x.notes
         })),
-        bales:[],
+        bales:(bales||[]).map(x=>({id:x.id,shipmentId:x.shipment_id,status:x.status})),
         customers:(customers||[]).map(x=>({id:x.id,name:x.name,phone:x.phone,debt:num(x.debt)})),
         payments:(payments||[]).map(x=>({id:x.id,customerId:x.customer_id,amount:num(x.amount),date:x.paid_at,isReturn:false})),
         sales:(sales||[]).map(x=>({id:x.id,customerId:x.customer_id,amount:num(x.total_jod),date:x.sale_date||x.created_at||null,notes:x.notes||''})),
