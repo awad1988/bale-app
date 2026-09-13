@@ -173,13 +173,13 @@ module.exports = function registerAgentOpsRoutes(ctx){
 
         // If no explicit supplier/customer word was used, resolve by exact known name.
         const [clist,slist]=await Promise.all([customers(),suppliers()]);
-        const customer=mentioned(clist,prompt);
-        const supplier=mentioned(slist,prompt);
-        if(customer && !supplier){
-          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_customer_payment',requiresConfirmation:true,payload:{customerId:customer.id,customerName:customer.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ من الزبون '+customer.name+'؟'});
+        const fallbackCustomer=mentioned(clist,prompt);
+        const fallbackSupplier=mentioned(slist,prompt);
+        if(fallbackCustomer && !fallbackSupplier){
+          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_customer_payment',requiresConfirmation:true,payload:{customerId:fallbackCustomer.id,customerName:fallbackCustomer.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ من الزبون '+fallbackCustomer.name+'؟'});
         }
-        if(supplier && !customer){
-          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_supplier_payment',requiresConfirmation:true,payload:{supplierId:supplier.id,supplierName:supplier.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ للمورد '+supplier.name+'؟'});
+        if(fallbackSupplier && !fallbackCustomer){
+          return res.json({ok:true,version:OPS_VERSION,action:{type:'record_supplier_payment',requiresConfirmation:true,payload:{supplierId:fallbackSupplier.id,supplierName:fallbackSupplier.name,amount,notes:prompt}},message:'تأكيد تسجيل دفعة '+amount.toFixed(2)+' د.أ للمورد '+fallbackSupplier.name+'؟'});
         }
       }
 
