@@ -57,6 +57,28 @@
   }
   window.saveSupplierAccountEntry = saveEntry;
 
+  async function deletePayment(id, entryIndex) {
+    const supplier = suppliersData().find(x => String(x.id) === String(id));
+    const account = supplier && parseAccount(supplier.notes);
+    const entry = account && Array.isArray(account.entries) ? account.entries[entryIndex] : null;
+    if (!entry || entry.type !== 'payment') return alert('تعذر العثور على الدفعة');
+
+    const approved = confirm(
+      `هل تريد حذف دفعة ${moneyUsd(entry.amount)} بتاريخ ${fmtDate(entry.date)}؟\nسيتم إعادة احتساب رصيد المورد تلقائيًا.`
+    );
+    if (!approved) return;
+
+    try {
+      await api('/api/supplier-account/' + encodeURIComponent(id) + '/entries/' + entryIndex, {
+        method: 'DELETE'
+      });
+      await refresh();
+      window.supplierStatement(id);
+      alert('تم حذف الدفعة وإعادة احتساب الرصيد');
+    } catch (e) { alert(e.message); }
+  }
+  window.deleteSupplierAccountPayment = deletePayment;
+
   const originalRenderAll = window.renderAll;
   if (typeof originalRenderAll === 'function') {
     window.renderAll = function() {
@@ -86,7 +108,7 @@
     const account = supplier && parseAccount(supplier.notes);
     if (!supplier || !account) return originalSupplierStatement ? originalSupplierStatement(id) : undefined;
 
-    const rows = (account.entries || []).map(e => {
+    const rows = (account.entries || []).map((e, entryIndex) => {
       const debit = e.type === 'purchase' ? e.amount : '';
       const credit = e.type === 'payment' ? e.amount : '';
       const desc = e.type === 'opening' ? 'رصيد افتتاحي' : e.type === 'purchase' ? 'وارد / مشتريات' : 'دفعة للمورد';
@@ -95,7 +117,7 @@
         <td>${fmtDate(e.date)}</td>
         <td>${desc}${detail ? `<div class="small">${detail}</div>` : ''}</td>
         <td>${debit === '' ? '-' : moneyUsd(debit)}</td>
-        <td>${credit === '' ? '-' : moneyUsd(credit)}</td>
+        <td>${credit === '' ? '-' : `${moneyUsd(credit)}<div><button class="btn danger" style="padding:6px 10px;margin-top:6px;font-size:12px" onclick="deleteSupplierAccountPayment('${supplier.id}',${entryIndex})">حذف الدفعة</button></div>`}</td>
         <td><b>${moneyUsd(e.balance)}</b></td>
       </tr>`;
     }).join('');
