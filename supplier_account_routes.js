@@ -46,6 +46,35 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
     }
   }
 
+  function recalculateAccount(value) {
+    const entries = Array.isArray(value.entries) ? value.entries : [];
+    const hasOpeningEntry = entries.some(entry => entry.type === 'opening');
+    const roundMoney = amount => Math.round((Number(amount || 0) + Number.EPSILON) * 100) / 100;
+    let balance = hasOpeningEntry ? 0 : roundMoney(value.openingBalance);
+    let totalPurchases = 0;
+    let totalPayments = 0;
+
+    for (const entry of entries) {
+      const amount = roundMoney(entry.amount);
+      if (entry.type === 'opening') balance = amount;
+      if (entry.type === 'purchase') {
+        balance = roundMoney(balance + amount);
+        totalPurchases = roundMoney(totalPurchases + amount);
+      }
+      if (entry.type === 'payment') {
+        balance = roundMoney(balance - amount);
+        totalPayments = roundMoney(totalPayments + amount);
+      }
+      entry.balance = balance;
+    }
+
+    value.entries = entries;
+    value.currentBalance = balance;
+    value.totalPurchases = totalPurchases;
+    value.totalPayments = totalPayments;
+    return value;
+  }
+
   async function ensureNovatexAccount() {
     try {
       const found = await supabaseRequest(`suppliers?name=eq.${encodeURIComponent(SUPPLIER_NAME)}&select=id,name,balance,notes&limit=1`);
@@ -101,13 +130,11 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
       const parsed = parseAccount(supplier.notes);
       if (!parsed) throw new Error('هذا المورد لا يحتوي كشفًا مستوردًا');
 
-      const current = Number(parsed.currentBalance || supplier.balance || 0);
-      const newBalance = type === 'purchase' ? current + amount : current - amount;
       const entry = {
         date: x.date || new Date().toISOString().slice(0, 10),
         type,
         amount,
-        balance: newBalance,
+        balance: 0,
         ref: String(x.ref || '').trim(),
         container: String(x.container || '').trim(),
         bales: Number(x.bales || 0),
@@ -116,9 +143,8 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
 
       parsed.entries = Array.isArray(parsed.entries) ? parsed.entries : [];
       parsed.entries.push(entry);
-      parsed.currentBalance = newBalance;
-      parsed.totalPurchases = Number(parsed.totalPurchases || 0) + (type === 'purchase' ? amount : 0);
-      parsed.totalPayments = Number(parsed.totalPayments || 0) + (type === 'payment' ? amount : 0);
+      recalculateAccount(parsed);
+      const newBalance = parsed.currentBalance;
 
       await supabaseRequest(`suppliers?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
@@ -127,6 +153,38 @@ module.exports = function supplierAccountRoutes({ app, supabaseRequest }) {
       });
 
       res.json({ ok: true, balance: newBalance, account: parsed });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/supplier-account/:id/entries/:entryIndex', async (req, res) => {
+    try {
+      const id = req.params.id;
+      const entryIndex = Number(req.params.entryIndex);
+      if (!Number.isInteger(entryIndex) || entryIndex < 0) throw new Error('رقم الدفعة غير صحيح');
+
+      const rows = await supabaseRequest(`suppliers?id=eq.${encodeURIComponent(id)}&select=id,name,balance,notes&limit=1`);
+      const supplier = Array.isArray(rows) ? rows[0] : null;
+      if (!supplier) throw new Error('المورد غير موجود');
+      const parsed = parseAccount(supplier.notes);
+      if (!parsed) throw new Error('هذا المورد لا يحتوي كشفًا مستوردًا');
+
+      parsed.entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+      const entry = parsed.entries[entryIndex];
+      if (!entry) throw new Error('الدفعة غير موجودة');
+      if (entry.type !== 'payment') throw new Error('يمكن حذف دفعات المورد فقط');
+
+      const [deleted] = parsed.entries.splice(entryIndex, 1);
+      recalculateAccount(parsed);
+
+      await supabaseRequest(`suppliers?id=eq.${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ balance: parsed.currentBalance, notes: encodeAccount(parsed) })
+      });
+
+      res.json({ ok: true, deleted, balance: parsed.currentBalance, account: parsed });
     } catch (error) {
       res.status(400).json({ error: error.message });
     }
