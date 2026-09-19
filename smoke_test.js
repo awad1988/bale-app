@@ -3,7 +3,8 @@ const { spawn } = require('child_process');
 const port = 18080;
 const child = spawn(process.execPath, ['launcher.js'], {
   cwd: __dirname,
-  env: { ...process.env, PORT: String(port), SKIP_BOOTSTRAP_FILE_PATCH: '1' },
+  // Tests must not inherit production database or integration credentials.
+  env: { PATH: process.env.PATH, PORT: String(port), SKIP_BOOTSTRAP_FILE_PATCH: '1' },
   stdio: ['ignore', 'pipe', 'pipe']
 });
 
@@ -31,7 +32,7 @@ async function waitForServer() {
       fetch(`http://127.0.0.1:${port}/api/v7/backups/status`).then(r => r.json())
     ]);
     if (!root.includes('customer_statement_patch.js?v=3-share')) throw new Error('Share patch cache version is missing.');
-    if (!root.includes('statement_share_patch.js?v=1')) throw new Error('Final statement share patch is missing.');
+    if (!root.includes('statement_share_patch.js?v=2-almadinah')) throw new Error('Final statement share patch is missing.');
     if (whatsapp.configured !== false) throw new Error('WhatsApp must be disabled without credentials.');
     if (backup.enabled !== false) throw new Error('Backups must be disabled without an encryption key.');
     console.log('Smoke test passed.');
